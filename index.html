@@ -1,0 +1,1568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autumn Leaves — Two-Hand Chord Game</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #080a0f;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  display: flex; flex-direction: column; align-items: center;
+  min-height: 100vh; padding: 16px 12px 32px; color: #c0c8dc;
+}
+
+h1 {
+  font-size: 13px; font-weight: 400; color: #4b5268;
+  letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 10px;
+}
+
+#game-root {
+  width: 100%; max-width: 960px; background: #0d0f14;
+  border-radius: 14px; overflow: hidden; position: relative; border: 1px solid #1e2333;
+}
+
+/* MIDI bar */
+#midi-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 16px; background: #0a0c12;
+  border-bottom: 1px solid #1a1f2e; font-size: 11px; color: #4b5268;
+}
+#midi-dot { width: 7px; height: 7px; border-radius: 50%; background: #2a2f3e; flex-shrink: 0; transition: background 0.3s; }
+#midi-dot.connected { background: #4ade80; box-shadow: 0 0 6px #4ade8060; }
+#midi-dot.activity  { background: #e0c96e; }
+#midi-device-name   { color: #6b7280; margin-left: 4px; }
+
+/* top bar */
+#topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 16px; background: #141720; border-bottom: 1px solid #1e2333; flex-wrap: wrap; gap: 8px;
+}
+.song-title { font-size: 14px; font-weight: 500; color: #a78bfa; }
+.song-sub   { font-size: 11px; color: #4b5268; margin-top: 1px; }
+#stats { display: flex; gap: 18px; }
+.stat-block { text-align: center; }
+.stat-val { font-size: 17px; font-weight: 500; color: #a78bfa; line-height: 1; }
+.stat-lbl { font-size: 10px; color: #4b5268; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+#combo-display { font-size: 12px; color: #e0c96e; font-weight: 500; min-width: 72px; text-align: right; }
+
+/* settings bar */
+#settings-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 16px; background: #0f1118; border-bottom: 1px solid #1e2333; flex-wrap: wrap;
+}
+.settings-label { font-size: 11px; color: #4b5268; white-space: nowrap; }
+#key-selector { display: flex; gap: 3px; flex-wrap: wrap; }
+.key-pill {
+  background: #1a1f2e; border: 1px solid #2a2f3e; color: #6b7280;
+  font-size: 11px; padding: 3px 8px; border-radius: 10px; cursor: pointer; transition: all 0.1s;
+}
+.key-pill:hover { background: #2a3050; color: #c0c8dc; }
+.key-pill.sel   { background: #2a204a; color: #a78bfa; border-color: #7c5fba; }
+#tempo-wrap { display: flex; align-items: center; gap: 7px; }
+#tempo-slider {
+  -webkit-appearance: none; appearance: none; width: 100px; height: 4px;
+  border-radius: 2px; background: #2a2f3e; outline: none; cursor: pointer;
+}
+#tempo-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #a78bfa; cursor: pointer; }
+#tempo-slider::-moz-range-thumb    { width: 14px; height: 14px; border-radius: 50%; background: #a78bfa; cursor: pointer; border: none; }
+#tempo-val { font-size: 12px; font-weight: 500; color: #a78bfa; min-width: 52px; }
+.tempo-btn {
+  background: #1a1f2e; border: 1px solid #2a2f3e; color: #9ba3b8; font-size: 13px;
+  width: 22px; height: 22px; border-radius: 4px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.1s; padding: 0;
+}
+.tempo-btn:hover { background: #2a2050; color: #a78bfa; }
+
+/* ── CHORD STRIP ── */
+#chord-strip-wrap {
+  width: 100%; background: #0a0c12; border-bottom: 1px solid #1e2333;
+  overflow: hidden; height: 56px;
+}
+#chord-strip {
+  display: flex; align-items: center; height: 100%; padding: 0 16px; gap: 0;
+  transition: transform 0.35s cubic-bezier(0.4,0,0.2,1); white-space: nowrap;
+}
+.chord-chip {
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+  min-width: 68px; height: 44px; border-radius: 7px; padding: 0 10px; flex-shrink: 0;
+  font-size: 14px; font-weight: 500; color: #3a3f54; border: 1px solid transparent; margin: 0 3px;
+  transition: all 0.2s;
+}
+.chord-chip .chip-sub { font-size: 9px; color: #2a2f3e; margin-top: 1px; letter-spacing: 0.05em; }
+.chord-chip.active { background: #1e1040; border-color: #7c5fba; color: #a78bfa; font-size: 16px; }
+.chord-chip.active .chip-sub { color: #5040a0; }
+.chord-chip.passed  { color: #2a2f3e; }
+.chord-chip.passed.ok { color: #1a4a2a; }
+
+/* ── MAIN DISPLAY ── */
+#main-display {
+  display: grid; grid-template-columns: 1fr 1px 1fr;
+  border-bottom: 1px solid #1e2333; min-height: 180px;
+}
+.hand-panel {
+  padding: 18px 20px 14px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.hand-divider { background: #1e2333; }
+
+.hand-label {
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 500;
+}
+.lh-label { color: #60a5fa; }
+.rh-label { color: #fb923c; }
+
+.hand-chord-name {
+  font-size: 36px; font-weight: 500; line-height: 1; text-align: center; letter-spacing: -0.02em;
+}
+.lh-name { color: #60a5fa; }
+.rh-name { color: #fb923c; }
+
+.hand-tag { font-size: 11px; color: #4b5268; letter-spacing: 0.05em; }
+
+/* note bubbles — left hand (blue) */
+.lh-bubbles { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; margin-top: 2px; }
+.lh-bubble {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 500; line-height: 1.1;
+  background: #0d1e38; border: 1.5px solid #1a3a6a; color: #3a6aaa;
+  transition: all 0.12s;
+}
+.lh-bubble .bub-role { font-size: 8px; color: #2a3a5a; margin-top: 1px; }
+.lh-bubble.held  { background: #1a3070; border-color: #60a5fa; color: #bfdbfe; }
+.lh-bubble.held .bub-role { color: #7090c0; }
+.lh-bubble.wrong { background: #3a1010; border-color: #f87171; color: #f87171; }
+
+/* note bubbles — right hand (orange) */
+.rh-bubbles { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; margin-top: 2px; }
+.rh-bubble {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 500; line-height: 1.1;
+  background: #1e1008; border: 1.5px solid #4a2a10; color: #8a5030;
+  transition: all 0.12s;
+}
+.rh-bubble .bub-role { font-size: 8px; color: #3a2010; margin-top: 1px; }
+.rh-bubble.held  { background: #3a1a00; border-color: #fb923c; color: #fed7aa; }
+.rh-bubble.held .bub-role { color: #a06030; }
+.rh-bubble.wrong { background: #3a1010; border-color: #f87171; color: #f87171; }
+.rh-bubble.any   { font-size: 9px; font-style: italic; color: #5a3a20; border-style: dashed; }
+
+/* hand status badges */
+.hand-status {
+  font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 10px; min-width: 70px; text-align: center;
+}
+.hand-status.waiting { background: #1a1f2e; color: #4b5268; }
+.hand-status.partial { background: #1a2a4a; color: #60a5fa; }
+.hand-status.done    { background: #1a4a2a; color: #4ade80; }
+.hand-status.wrong   { background: #3a1010; color: #f87171; }
+
+/* inversion hint */
+#inversion-hint {
+  font-size: 10px; color: #3a3050; text-align: center; padding: 4px;
+}
+
+/* ── FEEDBACK ── */
+#feedback-bar {
+  width: 100%; padding: 8px 20px; min-height: 38px;
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  background: #0a0c12; border-bottom: 1px solid #1e2333; transition: background 0.25s;
+}
+#feedback-text { font-size: 14px; font-weight: 500; color: #4b5268; text-align: center; }
+#timer-bar-wrap { flex: 1; max-width: 200px; height: 3px; background: #1e2333; border-radius: 2px; overflow: hidden; }
+#timer-bar { height: 100%; background: #a78bfa; width: 100%; transition: width 0.1s linear; border-radius: 2px; }
+
+/* Progress */
+#progress-wrap { width: 100%; height: 3px; background: #1e2333; }
+#progress-bar  { height: 100%; background: #a78bfa; width: 0%; transition: width 0.4s; }
+
+/* ── PIANO ── */
+#piano-row {
+  position: relative; width: 100%; height: 84px;
+  background: #141720; border-top: 1px solid #1e2333;
+  overflow: hidden; display: flex; align-items: flex-start;
+}
+.piano-key { position: relative; cursor: pointer; transition: background 0.05s; flex-shrink: 0; }
+.white-key {
+  background: #e8e4d9; border-right: 1px solid #b0a898;
+  border-bottom: 4px solid #9e9080; height: 78px; border-radius: 0 0 4px 4px;
+}
+.black-key {
+  background: #1a1a1a; border: 1px solid #0a0a0a; border-bottom: 4px solid #000;
+  height: 50px; border-radius: 0 0 3px 3px; position: absolute; z-index: 2;
+}
+/* Left hand target: blue */
+.white-key.lh-target  { background: #b8d4f8; border-bottom-color: #6090d0; }
+.black-key.lh-target  { background: #3060b0; border-bottom-color: #1040a0; }
+/* Right hand target: orange tint */
+.white-key.rh-target  { background: #fcd9a8; border-bottom-color: #d08040; }
+.black-key.rh-target  { background: #904020; border-bottom-color: #602000; }
+/* Both hands (overlap zone) */
+.white-key.both-target { background: #d8b8f0; border-bottom-color: #9060c0; }
+.black-key.both-target { background: #7030b0; border-bottom-color: #4010a0; }
+/* Active press */
+.white-key.lh-active  { background: #60a5fa !important; border-bottom-color: #2060d0 !important; }
+.black-key.lh-active  { background: #3070e0 !important; border-bottom-color: #1050c0 !important; }
+.white-key.rh-active  { background: #fb923c !important; border-bottom-color: #c05010 !important; }
+.black-key.rh-active  { background: #d06020 !important; border-bottom-color: #a04000 !important; }
+/* Correct flash */
+.white-key.correct-flash { background: #4ade80 !important; border-bottom-color: #16a34a !important; }
+.black-key.correct-flash { background: #22c55e !important; border-bottom-color: #15803d !important; }
+/* Wrong */
+.white-key.wrong-flash   { background: #f87171 !important; border-bottom-color: #dc2626 !important; }
+.black-key.wrong-flash   { background: #ef4444 !important; border-bottom-color: #b91c1c !important; }
+
+.key-label {
+  position: absolute; bottom: 4px; left: 0; right: 0;
+  text-align: center; font-size: 8px; color: #999; pointer-events: none;
+}
+
+/* boundary marker between LH/RH octaves */
+.key-boundary::after {
+  content: ''; position: absolute; top: 0; right: -1px;
+  width: 2px; height: 100%; background: #a78bfa40; z-index: 3;
+}
+
+/* bottom bar */
+#bottombar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 16px; background: #141720; border-top: 1px solid #1e2333; gap: 10px; flex-wrap: wrap;
+}
+.btn {
+  background: #1e2333; border: 1px solid #2a2f3e; color: #c0c8dc;
+  font-size: 12px; padding: 5px 13px; border-radius: 6px; cursor: pointer;
+  transition: background 0.1s, color 0.1s; white-space: nowrap;
+}
+.btn:hover  { background: #2a2050; color: #a78bfa; }
+.btn.active { background: #a78bfa; color: #0d0f14; border-color: #7050d0; }
+#mode-btns, #right-btns { display: flex; gap: 6px; }
+
+.shell-pick {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: #4b5268;
+}
+.spill {
+  background: #1a1f2e; border: 1px solid #2a2f3e; color: #6b7280;
+  font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer; transition: all 0.1s;
+}
+.spill:hover { background: #1a1838; color: #a78bfa; }
+.spill.active { background: #1a1838; border-color: #5040a0; color: #a78bfa; }
+
+/* overlay */
+#overlay {
+  position: absolute; inset: 0; background: rgba(10,12,18,0.95);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; z-index: 10; border-radius: 14px; padding: 24px; overflow-y: auto;
+}
+#overlay.hidden { display: none; }
+.overlay-title { font-size: 21px; font-weight: 500; color: #a78bfa; text-align: center; }
+.overlay-sub   { font-size: 13px; color: #6b7280; text-align: center; max-width: 420px; line-height: 1.65; }
+.overlay-stats { display: flex; gap: 18px; margin: 4px 0; flex-wrap: wrap; justify-content: center; }
+.btn-big {
+  background: #a78bfa; color: #0d0f14; border: none; font-size: 14px; font-weight: 500;
+  padding: 10px 28px; border-radius: 8px; cursor: pointer; transition: background 0.1s;
+}
+.btn-big:hover { background: #c0a8ff; }
+.diff-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.diff-btn {
+  background: #1e2333; border: 1px solid #2a2f3e; color: #9ba3b8;
+  font-size: 12px; padding: 5px 13px; border-radius: 6px; cursor: pointer; transition: all 0.1s;
+}
+.diff-btn:hover, .diff-btn.sel { background: #2a2050; color: #a78bfa; border-color: #7c5fba; }
+.midi-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: #0f2a1a; border: 1px solid #1a4a2a; color: #4ade80; font-size: 11px; padding: 4px 10px; border-radius: 20px;
+}
+.midi-badge-dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; }
+.section-label { font-size: 10px; color: #4b5268; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
+.hand-legend {
+  display: flex; gap: 16px; font-size: 12px; align-items: center;
+}
+.lh-dot { width: 10px; height: 10px; border-radius: 50%; background: #60a5fa; }
+.rh-dot { width: 10px; height: 10px; border-radius: 50%; background: #fb923c; }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2f3e; border-radius: 2px; }
+
+#vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 13px; height: 13px;
+  border-radius: 50%; background: #4ade80; cursor: pointer;
+}
+#vol-slider::-moz-range-thumb {
+  width: 13px; height: 13px; border-radius: 50%; background: #4ade80; cursor: pointer; border: none;
+}
+</style>
+</head>
+<body>
+
+<h1>Autumn Leaves — Two-Hand Chord Game</h1>
+
+<div id="game-root">
+
+  <div id="midi-bar">
+    <div id="midi-dot"></div>
+    <span id="midi-status">No MIDI device detected</span>
+    <span id="midi-device-name"></span>
+    <span style="margin-left:auto;font-size:10px;color:#2a2f3e;">Web MIDI API</span>
+  </div>
+
+  <div id="topbar">
+    <div>
+      <div class="song-title" id="top-title">Autumn Leaves — Two-Hand Voicing</div>
+      <div class="song-sub"   id="top-sub">Left hand: shell (root + 7th/6th) · Right hand: full chord, any inversion</div>
+    </div>
+    <div id="stats">
+      <div class="stat-block"><div class="stat-val" id="s-score">0</div><div class="stat-lbl">Score</div></div>
+      <div class="stat-block"><div class="stat-val" id="s-acc">—</div><div class="stat-lbl">Accuracy</div></div>
+      <div class="stat-block"><div class="stat-val" id="s-chord">0/0</div><div class="stat-lbl">Chords</div></div>
+    </div>
+    <div id="combo-display"></div>
+  </div>
+
+  <div id="settings-bar">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span class="settings-label">Key</span>
+      <div id="key-selector"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+      <span class="settings-label">Tempo</span>
+      <div id="tempo-wrap">
+        <button class="tempo-btn" onclick="adjustTempo(-5)">−</button>
+        <input type="range" id="tempo-slider" min="40" max="180" value="112" step="1" oninput="setTempo(+this.value)">
+        <button class="tempo-btn" onclick="adjustTempo(+5)">+</button>
+        <span id="tempo-val">112 BPM</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- chord strip -->
+  <div id="chord-strip-wrap"><div id="chord-strip"></div></div>
+
+  <!-- main two-panel display -->
+  <div id="main-display">
+    <!-- LEFT HAND -->
+    <div class="hand-panel">
+      <div class="hand-label lh-label">Left hand — shell</div>
+      <div class="hand-chord-name lh-name" id="lh-chord-name">—</div>
+      <div class="hand-tag" id="lh-tag"></div>
+      <div class="lh-bubbles" id="lh-bubbles"></div>
+      <div class="hand-status waiting" id="lh-status">waiting</div>
+    </div>
+    <div class="hand-divider"></div>
+    <!-- RIGHT HAND -->
+    <div class="hand-panel">
+      <div class="hand-label rh-label">Right hand — any inversion</div>
+      <div class="hand-chord-name rh-name" id="rh-chord-name">—</div>
+      <div class="hand-tag" id="rh-tag"></div>
+      <div class="rh-bubbles" id="rh-bubbles"></div>
+      <div class="hand-status waiting" id="rh-status">waiting</div>
+    </div>
+  </div>
+
+  <div id="inversion-hint" id="inversion-hint"></div>
+
+  <div id="feedback-bar">
+    <div id="feedback-text">Press Start to begin</div>
+    <div id="timer-bar-wrap" style="display:none"><div id="timer-bar"></div></div>
+  </div>
+
+  <div id="progress-wrap"><div id="progress-bar"></div></div>
+
+  <div id="piano-row"></div>
+
+  <div id="bottombar">
+    <div id="mode-btns">
+      <button class="btn active" id="btn-play"  onclick="setMode('play')">Play</button>
+      <button class="btn"        id="btn-watch" onclick="setMode('watch')">Watch</button>
+    </div>
+    <div class="shell-pick">
+      <span class="settings-label">LH shell:</span>
+      <button class="spill active" id="sp-17" onclick="setShell('17')">Root + 7th</button>
+      <button class="spill"        id="sp-16" onclick="setShell('16')">Root + 6th</button>
+    </div>
+    <div class="shell-pick">
+      <span class="settings-label">Timing:</span>
+      <button class="spill active" id="t-free"  onclick="setTiming('free')">Free</button>
+      <button class="spill"        id="t-timed" onclick="setTiming('timed')">Strict</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:7px;">
+      <button class="btn" id="btn-audio" onclick="toggleAudio()" style="min-width:80px">🎵 Band on</button>
+      <input type="range" id="vol-slider" min="0" max="100" value="70" step="1"
+             oninput="setVolume(+this.value)"
+             style="-webkit-appearance:none;appearance:none;width:70px;height:4px;border-radius:2px;background:#2a2f3e;outline:none;cursor:pointer;">
+    </div>
+    <div id="right-btns">
+      <button class="btn" id="hint-toggle" onclick="toggleHints()">Hints on</button>
+      <button class="btn" id="btn-stop"    onclick="stopGame()"    style="display:none">Stop</button>
+      <button class="btn" id="btn-restart" onclick="startGame()"   style="display:none">Restart</button>
+    </div>
+  </div>
+
+  <div id="overlay">
+    <div class="overlay-title">Two-Hand Voicing Practice</div>
+    <div class="overlay-sub">
+      Left hand plays the <strong>shell</strong>: root + 7th (or 6th for minor chords) in the lower octave.<br>
+      Right hand plays the <strong>full chord</strong> in any inversion — pitch classes are checked, not exact octaves.
+    </div>
+    <div id="midi-overlay-status"></div>
+    <div class="hand-legend">
+      <span class="lh-dot"></span><span style="color:#60a5fa;font-size:12px;">Left hand</span>
+      &nbsp;&nbsp;
+      <span class="rh-dot"></span><span style="color:#fb923c;font-size:12px;">Right hand</span>
+    </div>
+    <div style="width:100%;max-width:440px;">
+      <div class="section-label">Left hand shell interval</div>
+      <div class="diff-row" style="margin-top:5px;">
+        <button class="diff-btn sel" id="d-17" onclick="selectShellDiff('17')">Root + 7th</button>
+        <button class="diff-btn"     id="d-16" onclick="selectShellDiff('16')">Root + 6th</button>
+      </div>
+    </div>
+    <div style="width:100%;max-width:440px;">
+      <div class="section-label">Timing</div>
+      <div class="diff-row" style="margin-top:5px;">
+        <button class="diff-btn sel" id="dt-free"  onclick="selectTimingDiff('free')">Free time</button>
+        <button class="diff-btn"     id="dt-timed" onclick="selectTimingDiff('timed')">Strict tempo</button>
+      </div>
+    </div>
+    <button class="btn-big" onclick="startGame()">Start playing</button>
+    <div style="font-size:10px;color:#2a2f3e;text-align:center;max-width:380px;line-height:1.6;">
+      MIDI keyboard required for two-hand play. The split point is between B3 and C4 (MIDI 59/60).
+      Left hand = below C4 · Right hand = C4 and above.
+    </div>
+  </div>
+
+</div><!-- #game-root -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+//  MUSIC DATA  (all in original key: Gm)
+// ═══════════════════════════════════════════════════════════════════════
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const IS_BLACK   = [false,true,false,true,false,false,true,false,true,false,true,false];
+const MIDI_START = 36;
+const MIDI_END   = 96;
+const BASE_BPM   = 112;
+const SPLIT_MIDI = 60;   // C4 — notes below this = left hand zone, at/above = right hand zone
+
+// Shell voicings in Gm:
+//   "17" = root (low octave) + minor 7th (or dom 7th / maj 7th)
+//   "16" = root (low octave) + major 6th / minor 6th (context-dependent)
+//
+// For jazz shells the practical rule:
+//   Minor 7 chords  → root + m7  (or root + 6 for shell "16" mode)
+//   Dominant 7      → root + b7
+//   Major 7         → root + maj7 (or root + 6 in shell "16")
+//   Half-dim        → root + m7
+//   Minor (no 7)    → root + m7 (or root + 6)
+//
+// All pitches here are relative to C=0 within one octave
+// lhShell17 = [root, 7th]  lhShell16 = [root, 6th]
+// rhNotes = all chord tones (pitch classes only — inversion free)
+
+const CHORD_CHART_BASE = [
+  // chord name, quality tag, bars, lhRoot (absolute midi, low register), lhInterval17, lhInterval16, rhPitchClasses
+  // lhInterval = semitones above root for the upper shell note
+  // Cm7: root C, m7=Bb(10), m6=Ab(8) — rh: C Eb G Bb
+  { name:'Cm7',    tag:'minor 7',         bars:1, lhRoot:48, i17:10, i16:8,  rh:[0,3,7,10] },
+  // F7: root F, b7=Eb(10), 6=D(9) — rh: F A C Eb
+  { name:'F7',     tag:'dominant 7',      bars:1, lhRoot:41, i17:10, i16:9,  rh:[5,9,0,3]  },
+  // Bbmaj7: root Bb, maj7=A(11), 6=G(9) — rh: Bb D F A
+  { name:'B♭maj7', tag:'major 7',         bars:1, lhRoot:46, i17:11, i16:9,  rh:[10,2,5,9] },
+  // Ebmaj7: root Eb, maj7=D(11), 6=C(9) — rh: Eb G Bb D
+  { name:'E♭maj7', tag:'major 7',         bars:1, lhRoot:51, i17:11, i16:9,  rh:[3,7,10,2] },
+  // Am7b5: root A, m7=G(10), m6=F(8) — rh: A C Eb G
+  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, i17:10, i16:8,  rh:[9,0,3,7]  },
+  // D7: root D, b7=C(10), 6=B(9) — rh: D F# A C
+  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, i17:10, i16:9,  rh:[2,6,9,0]  },
+  // Gm: root G, m7=F(10), m6=Eb(8) — rh: G Bb D (F optional)
+  { name:'Gm',     tag:'minor',           bars:2, lhRoot:43, i17:10, i16:8,  rh:[7,10,2,5] },
+  // --- A section repeat ---
+  { name:'Cm7',    tag:'minor 7',         bars:1, lhRoot:48, i17:10, i16:8,  rh:[0,3,7,10] },
+  { name:'F7',     tag:'dominant 7',      bars:1, lhRoot:41, i17:10, i16:9,  rh:[5,9,0,3]  },
+  { name:'B♭maj7', tag:'major 7',         bars:1, lhRoot:46, i17:11, i16:9,  rh:[10,2,5,9] },
+  { name:'E♭maj7', tag:'major 7',         bars:1, lhRoot:51, i17:11, i16:9,  rh:[3,7,10,2] },
+  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, i17:10, i16:8,  rh:[9,0,3,7]  },
+  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, i17:10, i16:9,  rh:[2,6,9,0]  },
+  { name:'Gm',     tag:'minor',           bars:2, lhRoot:43, i17:10, i16:8,  rh:[7,10,2,5] },
+  // --- B section ---
+  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, i17:10, i16:8,  rh:[9,0,3,7]  },
+  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, i17:10, i16:9,  rh:[2,6,9,0]  },
+  { name:'Gm',     tag:'minor',           bars:2, lhRoot:43, i17:10, i16:8,  rh:[7,10,2,5] },
+  { name:'Cm7',    tag:'minor 7',         bars:1, lhRoot:48, i17:10, i16:8,  rh:[0,3,7,10] },
+  { name:'F7',     tag:'dominant 7',      bars:1, lhRoot:41, i17:10, i16:9,  rh:[5,9,0,3]  },
+  { name:'B♭maj7', tag:'major 7',         bars:1, lhRoot:46, i17:11, i16:9,  rh:[10,2,5,9] },
+  { name:'E♭maj7', tag:'major 7',         bars:1, lhRoot:51, i17:11, i16:9,  rh:[3,7,10,2] },
+  // --- Final A ---
+  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, i17:10, i16:8,  rh:[9,0,3,7]  },
+  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, i17:10, i16:9,  rh:[2,6,9,0]  },
+  { name:'Gm7',    tag:'minor 7',         bars:2, lhRoot:43, i17:10, i16:8,  rh:[7,10,2,5] },
+];
+
+const KEYS = [
+  {name:'Gm',offset:0},{name:'G#m',offset:1},{name:'Am',offset:2},{name:'A#m',offset:3},
+  {name:'Bm',offset:4},{name:'Cm',offset:5},{name:'C#m',offset:6},{name:'Dm',offset:7},
+  {name:'D#m',offset:8},{name:'Em',offset:9},{name:'Fm',offset:10},{name:'F#m',offset:11},
+];
+
+function transposeChordName(chord, s) {
+  if (!s) return chord;
+  return chord.replace(/[A-G][#♭]?/g, m => {
+    const mp={'C':0,'C#':1,'D♭':1,'D':2,'D#':3,'E♭':3,'E':4,'F':5,'F#':6,'G♭':6,'G':7,'G#':8,'A♭':8,'A':9,'A#':10,'B♭':10,'B':11};
+    const rm=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+    const b=mp[m]; if(b===undefined) return m; return rm[(b+s+12)%12];
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  State
+// ═══════════════════════════════════════════════════════════════════════
+let keyOffset  = 0;
+let shellMode  = '17';   // '17' or '16'
+let timingMode = 'free'; // 'free' or 'timed'
+let watchMode  = false;
+let hintsOn    = true;
+let gameRunning = false;
+let currentBPM  = BASE_BPM;
+
+let chordSeq   = [];
+let chordIdx   = 0;
+let chordDone  = false;
+
+// Held notes by hand (determined by split point at runtime)
+let lhHeld = new Set();   // midi notes held in left-hand zone
+let rhHeld = new Set();   // midi notes held in right-hand zone
+let lhWrong = new Set();
+let rhWrong = new Set();
+let lhDone  = false;
+let rhDone  = false;
+
+let score = 0, correct = 0, total = 0, streak = 0, maxStreak = 0;
+let midiConnected = false, midiActivityTimer = null;
+let keyMap = {};
+let chordTimer = null, chordTimerMs = 0, chordStartTime = 0;
+let timerAnimFrame = null;
+
+const KB_MAP = {
+  'a':60,'s':62,'d':64,'f':65,'g':67,'h':69,'j':71,'k':72,'l':74,';':76,"'":77,'=':79,
+  'w':61,'e':63,'t':66,'y':68,'u':70,'o':73,'p':75
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Build chord sequence from base data + transposition + shell mode
+// ═══════════════════════════════════════════════════════════════════════
+function buildSeq() {
+  return CHORD_CHART_BASE.map(c => {
+    // Left hand: root + shell interval, in the low register
+    let lhRoot = c.lhRoot + keyOffset;
+    while (lhRoot > 55) lhRoot -= 12;
+    while (lhRoot < 36) lhRoot += 12;
+    const interval = shellMode === '17' ? c.i17 : c.i16;
+    let lhUpper = lhRoot + interval;
+    // Ensure upper note stays below split and sounds good
+    while (lhUpper >= SPLIT_MIDI) lhUpper -= 12;
+    while (lhUpper <= lhRoot)     lhUpper += 12;
+    const lhNotes = [lhRoot, lhUpper];
+
+    // Right hand: all 4 pitch classes, any octave at/above split
+    const rhPCs = c.rh.map(pc => (pc + keyOffset + 12) % 12);
+
+    return {
+      name:    transposeChordName(c.name, keyOffset),
+      tag:     c.tag,
+      bars:    c.bars,
+      lhNotes,          // exact midi numbers required
+      rhPCs,            // pitch classes (mod 12) — any octave accepted
+      lhRoot,
+      interval,
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Key selector + tempo
+// ═══════════════════════════════════════════════════════════════════════
+function buildKeySelector() {
+  const sel = document.getElementById('key-selector');
+  sel.innerHTML = '';
+  KEYS.forEach(k => {
+    const b = document.createElement('button');
+    b.className = 'key-pill' + (k.offset === keyOffset ? ' sel' : '');
+    b.textContent = k.name;
+    b.onclick = () => { keyOffset = k.offset; buildKeySelector(); buildKeyboard(); if (gameRunning) startGame(); };
+    sel.appendChild(b);
+  });
+}
+
+function setTempo(bpm) {
+  currentBPM = Math.max(40, Math.min(180, bpm));
+  document.getElementById('tempo-slider').value = currentBPM;
+  document.getElementById('tempo-val').textContent = currentBPM + ' BPM';
+}
+function adjustTempo(d) { setTempo(currentBPM + d); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Piano keyboard DOM
+// ═══════════════════════════════════════════════════════════════════════
+function buildKeyboard() {
+  const row = document.getElementById('piano-row');
+  row.innerHTML = ''; keyMap = {};
+  const whites = [];
+  for (let m = MIDI_START; m <= MIDI_END; m++) if (!IS_BLACK[m%12]) whites.push(m);
+  const wkW = Math.floor((row.offsetWidth || 960) / whites.length);
+
+  whites.forEach(m => {
+    const el = document.createElement('div');
+    el.className = 'piano-key white-key' + (m === SPLIT_MIDI - 1 ? ' key-boundary' : '');
+    el.dataset.midi = m;
+    el.style.width = wkW + 'px';
+    const lbl = document.createElement('div');
+    lbl.className = 'key-label';
+    lbl.textContent = NOTE_NAMES[m%12] + Math.floor(m/12-1);
+    el.appendChild(lbl);
+    el.addEventListener('mousedown',  () => handleNoteOn(m));
+    el.addEventListener('mouseup',    () => handleNoteOff(m));
+    el.addEventListener('mouseleave', () => handleNoteOff(m));
+    el.addEventListener('touchstart', e => { e.preventDefault(); handleNoteOn(m); });
+    el.addEventListener('touchend',   e => { e.preventDefault(); handleNoteOff(m); });
+    row.appendChild(el);
+    keyMap[m] = el;
+  });
+
+  let wi = 0;
+  const allW = [...row.querySelectorAll('.white-key')];
+  for (let m = MIDI_START; m <= MIDI_END; m++) {
+    if (!IS_BLACK[m%12]) { wi++; continue; }
+    const prev = allW[wi-1]; if (!prev) continue;
+    const el = document.createElement('div');
+    el.className = 'piano-key black-key';
+    el.dataset.midi = m;
+    const bw = Math.round(wkW * 0.6);
+    el.style.width = bw + 'px';
+    el.style.left  = (prev.offsetLeft + wkW - Math.round(bw/2)) + 'px';
+    el.addEventListener('mousedown',  () => handleNoteOn(m));
+    el.addEventListener('mouseup',    () => handleNoteOff(m));
+    el.addEventListener('mouseleave', () => handleNoteOff(m));
+    el.addEventListener('touchstart', e => { e.preventDefault(); handleNoteOn(m); });
+    el.addEventListener('touchend',   e => { e.preventDefault(); handleNoteOff(m); });
+    row.appendChild(el);
+    keyMap[m] = el;
+  }
+}
+
+function clearAllKeyClasses() {
+  document.querySelectorAll('.piano-key').forEach(k => {
+    k.classList.remove('lh-target','rh-target','both-target',
+      'lh-active','rh-active','correct-flash','wrong-flash');
+  });
+}
+
+function applyHints(c) {
+  if (!hintsOn) return;
+  clearAllKeyClasses();
+  // LH exact targets
+  c.lhNotes.forEach(m => {
+    const el = keyMap[m]; if (!el) return;
+    el.classList.add('lh-target');
+  });
+  // RH: highlight nearest inversion above SPLIT_MIDI
+  // Find the closest root-position voicing just above split
+  const rhPCs = new Set(c.rhPCs);
+  for (let m = SPLIT_MIDI; m <= MIDI_END; m++) {
+    if (rhPCs.has(m % 12)) {
+      const el = keyMap[m]; if (!el) continue;
+      el.classList.remove('lh-target');
+      el.classList.add(el.classList.contains('lh-target') ? 'both-target' : 'rh-target');
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Web MIDI
+// ═══════════════════════════════════════════════════════════════════════
+function initMIDI() {
+  if (!navigator.requestMIDIAccess) { setMIDIStatus('Web MIDI not supported — use Chrome or Edge', false); return; }
+  navigator.requestMIDIAccess({ sysex: false }).then(acc => {
+    connectMIDI(acc); acc.onstatechange = () => connectMIDI(acc);
+  }).catch(() => setMIDIStatus('MIDI access denied', false));
+}
+function connectMIDI(acc) {
+  let ok = false, name = '';
+  acc.inputs.forEach(inp => { inp.onmidimessage = onMIDIMessage; if (!ok) { ok = true; name = inp.name; } });
+  midiConnected = ok;
+  if (ok) { setMIDIStatus('MIDI connected', true, name); updateMIDIOverlay(true, name); }
+  else    { setMIDIStatus('No MIDI device detected', false); updateMIDIOverlay(false); }
+}
+function onMIDIMessage(e) {
+  const [status, note, vel] = e.data;
+  const cmd = status & 0xf0;
+  if (cmd === 0x90 && vel > 0) { flashMIDIDot(); handleNoteOn(note, true); }
+  else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) handleNoteOff(note, true);
+}
+function flashMIDIDot() {
+  const dot = document.getElementById('midi-dot');
+  dot.classList.add('activity');
+  clearTimeout(midiActivityTimer);
+  midiActivityTimer = setTimeout(() => { dot.classList.remove('activity'); if (midiConnected) dot.classList.add('connected'); }, 100);
+}
+function setMIDIStatus(msg, ok, dev) {
+  document.getElementById('midi-status').textContent = msg;
+  document.getElementById('midi-device-name').textContent = dev ? '· '+dev : '';
+  document.getElementById('midi-dot').classList.toggle('connected', ok);
+}
+function updateMIDIOverlay(ok, dev) {
+  const el = document.getElementById('midi-overlay-status'); if (!el) return;
+  el.innerHTML = ok
+    ? `<div class="midi-badge"><div class="midi-badge-dot"></div>MIDI ready · ${dev}</div>`
+    : `<div style="font-size:11px;color:#4b5268;">No MIDI keyboard — connect one for two-hand play</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Game
+// ═══════════════════════════════════════════════════════════════════════
+function startGame() {
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('btn-restart').style.display = 'inline-block';
+  document.getElementById('btn-stop').style.display    = 'inline-block';
+  score = 0; correct = 0; total = 0; streak = 0; maxStreak = 0;
+  lhHeld.clear(); rhHeld.clear(); lhWrong.clear(); rhWrong.clear();
+  lhDone = false; rhDone = false; chordDone = false;
+  clearTimeout(chordTimer); cancelAnimationFrame(timerAnimFrame);
+  chordSeq = buildSeq();
+  chordIdx  = 0;
+  gameRunning = true;
+  buildStrip();
+  showChord(0);
+  updateStats();
+}
+
+function buildStrip() {
+  const strip = document.getElementById('chord-strip');
+  strip.innerHTML = '';
+  chordSeq.forEach((c, i) => {
+    const ch = document.createElement('div');
+    ch.className = 'chord-chip'; ch.id = 'chip-' + i;
+    ch.innerHTML = `<span>${c.name}</span><span class="chip-sub">${c.bars === 2 ? '2 bars' : '1 bar'}</span>`;
+    strip.appendChild(ch);
+  });
+}
+
+function scrollStrip(idx) {
+  const strip = document.getElementById('chord-strip');
+  const chip  = document.getElementById('chip-' + idx); if (!chip) return;
+  const wrap  = document.getElementById('chord-strip-wrap');
+  const t     = chip.offsetLeft - wrap.offsetWidth / 2 + chip.offsetWidth / 2;
+  strip.style.transform = `translateX(${-Math.max(0, t)}px)`;
+}
+
+function showChord(idx) {
+  if (idx > 0) {
+    const prev = document.getElementById('chip-' + (idx-1));
+    if (prev) prev.classList.add('passed');
+  }
+  chordIdx   = idx;
+  chordDone  = false;
+  lhDone     = false;
+  rhDone     = false;
+  lhHeld.clear(); rhHeld.clear();
+  lhWrong.clear(); rhWrong.clear();
+  clearTimeout(chordTimer); cancelAnimationFrame(timerAnimFrame);
+
+  if (idx >= chordSeq.length) { endGame(); return; }
+  total++;
+
+  const c = chordSeq[idx];
+  document.querySelectorAll('.chord-chip').forEach((ch, i) => ch.classList.toggle('active', i === idx));
+  scrollStrip(idx);
+
+  // Update chord name displays
+  document.getElementById('lh-chord-name').textContent = c.name;
+  document.getElementById('rh-chord-name').textContent = c.name;
+  document.getElementById('lh-tag').textContent        = c.tag;
+  document.getElementById('rh-tag').textContent        = 'any inversion';
+
+  renderLHBubbles(c);
+  renderRHBubbles(c);
+  setHandStatus('lh', 'waiting');
+  setHandStatus('rh', 'waiting');
+
+  // Inversion hint
+  const inversionEl = document.getElementById('inversion-hint');
+  const notePCNames = c.rhPCs.map(pc => NOTE_NAMES[pc]);
+  inversionEl.textContent = 'Right hand tones: ' + notePCNames.join(' · ') + ' — any octave, any order';
+
+  clearAllKeyClasses();
+  if (hintsOn) applyHints(c);
+  setFeedback('Play both hands', '#4b5268');
+
+  if (timingMode === 'timed') {
+    chordTimerMs   = Math.round((60 / currentBPM) * 4 * c.bars * 1000);
+    chordStartTime = Date.now();
+    document.getElementById('timer-bar-wrap').style.display = 'block';
+    animateTimer();
+    chordTimer = setTimeout(() => onTimeout(), chordTimerMs);
+  } else {
+    document.getElementById('timer-bar-wrap').style.display = 'none';
+    document.getElementById('timer-bar').style.width = '100%';
+  }
+
+  // Watch mode auto-play
+  if (watchMode) {
+    const delay = timingMode === 'timed' ? chordTimerMs * 0.25 : 600;
+    setTimeout(() => {
+      if (chordIdx !== idx || !gameRunning) return;
+      [...c.lhNotes].forEach(m => handleNoteOn(m, false, true));
+      // RH: play root-position voicing starting at SPLIT_MIDI
+      c.rhPCs.forEach(pc => {
+        let m = SPLIT_MIDI + ((pc - SPLIT_MIDI % 12 + 12) % 12);
+        if (m < SPLIT_MIDI) m += 12;
+        handleNoteOn(m, false, true);
+      });
+      setTimeout(() => {
+        [...c.lhNotes].forEach(m => handleNoteOff(m));
+        c.rhPCs.forEach(pc => {
+          let m = SPLIT_MIDI + ((pc - SPLIT_MIDI % 12 + 12) % 12);
+          if (m < SPLIT_MIDI) m += 12;
+          handleNoteOff(m);
+        });
+      }, 500);
+    }, delay);
+  }
+}
+
+function animateTimer() {
+  cancelAnimationFrame(timerAnimFrame);
+  const bar = document.getElementById('timer-bar');
+  function frame() {
+    const elapsed = Date.now() - chordStartTime;
+    const pct = Math.max(0, 1 - elapsed / chordTimerMs);
+    bar.style.width = (pct * 100) + '%';
+    bar.style.background = pct > 0.5 ? '#a78bfa' : pct > 0.25 ? '#fbbf24' : '#f87171';
+    if (pct > 0 && gameRunning && !chordDone) timerAnimFrame = requestAnimationFrame(frame);
+  }
+  timerAnimFrame = requestAnimationFrame(frame);
+}
+
+function onTimeout() {
+  if (chordDone || !gameRunning) return;
+  chordDone = true;
+  streak = 0;
+  setFeedback('Too slow — moving on', '#f87171');
+  flashFeedback('#3a1010');
+  updateStats();
+  setTimeout(() => showChord(chordIdx + 1), 400);
+}
+
+// ─── note on / off ───────────────────────────────────────────────────
+function handleNoteOn(midi, fromMIDI, fromWatch) {
+  const isLeft = midi < SPLIT_MIDI;
+
+  // Visual feedback on key
+  const el = keyMap[midi];
+  if (el) {
+    el.classList.remove('lh-target','rh-target','both-target');
+    el.classList.add(isLeft ? 'lh-active' : 'rh-active');
+  }
+
+  if (watchMode && !fromWatch) return;
+  if (!gameRunning || chordDone) return;
+
+  if (isLeft) lhHeld.add(midi); else rhHeld.add(midi);
+
+  const c = chordSeq[chordIdx];
+
+  // Check left hand
+  if (isLeft && !lhDone) {
+    const lhTargetSet = new Set(c.lhNotes);
+    if (!lhTargetSet.has(midi)) {
+      lhWrong.add(midi);
+      if (el) { el.classList.remove('lh-active'); el.classList.add('wrong-flash'); }
+    } else {
+      if (el) { el.classList.remove('lh-active'); el.classList.add('correct-flash'); }
+    }
+    renderLHBubbles(c);
+    const allLHHeld = c.lhNotes.every(m => lhHeld.has(m));
+    if (allLHHeld) {
+      lhDone = true;
+      setHandStatus('lh', lhWrong.size > 0 ? 'wrong' : 'done');
+    } else {
+      setHandStatus('lh', 'partial');
+    }
+  }
+
+  // Check right hand
+  if (!isLeft && !rhDone) {
+    const pc = midi % 12;
+    const rhPCSet = new Set(c.rhPCs);
+    if (!rhPCSet.has(pc)) {
+      rhWrong.add(midi);
+      if (el) { el.classList.remove('rh-active'); el.classList.add('wrong-flash'); }
+    } else {
+      if (el) { el.classList.remove('rh-active'); el.classList.add('correct-flash'); }
+    }
+    renderRHBubbles(c);
+    // RH is done when all 4 pitch classes are present among held RH notes
+    const heldPCs = new Set([...rhHeld].map(m => m % 12));
+    const allRHPresent = c.rhPCs.every(pc => heldPCs.has(pc));
+    if (allRHPresent) {
+      rhDone = true;
+      setHandStatus('rh', rhWrong.size > 0 ? 'wrong' : 'done');
+    } else {
+      setHandStatus('rh', 'partial');
+    }
+  }
+
+  // Both hands complete?
+  if (lhDone && rhDone && !chordDone) {
+    chordDone = true;
+    clearTimeout(chordTimer); cancelAnimationFrame(timerAnimFrame);
+    const anyWrong = lhWrong.size > 0 || rhWrong.size > 0;
+
+    if (!anyWrong) {
+      correct++;
+      streak++;
+      if (streak > maxStreak) maxStreak = streak;
+      const timingBonus = timingMode === 'timed'
+        ? Math.max(0, Math.round((1 - (Date.now() - chordStartTime) / chordTimerMs) * 60))
+        : 0;
+      const mult = Math.min(4, 1 + Math.floor(streak / 3) * 0.5);
+      const pts  = Math.round((120 + timingBonus) * mult);
+      score += pts;
+      setFeedback(streak >= 3 ? `${streak}× streak! +${pts}` : `Perfect! +${pts}`, '#4ade80');
+      flashFeedback('#0f2a1a');
+      document.getElementById('combo-display').textContent = streak >= 3 ? streak + '× combo!' : '';
+    } else {
+      streak = 0;
+      score += 40;
+      const msg = lhWrong.size > 0 && rhWrong.size > 0 ? 'Check both hands'
+                : lhWrong.size > 0 ? 'Watch the left hand shell'
+                : 'Extra notes in right hand';
+      setFeedback(msg, '#fbbf24');
+      flashFeedback('#2a1a00');
+      document.getElementById('combo-display').textContent = '';
+    }
+
+    const chip = document.getElementById('chip-' + chordIdx);
+    if (chip) chip.classList.add(anyWrong ? '' : 'ok');
+
+    updateStats();
+    const holdMs = timingMode === 'timed' ? Math.max(400, (60/currentBPM)*4*c.bars*1000*0.4) : 800;
+    setTimeout(() => showChord(chordIdx + 1), holdMs);
+  }
+}
+
+function handleNoteOff(midi, fromMIDI) {
+  const isLeft = midi < SPLIT_MIDI;
+  if (isLeft) lhHeld.delete(midi); else rhHeld.delete(midi);
+
+  const el = keyMap[midi];
+  if (!el) return;
+  el.classList.remove('lh-active','rh-active','correct-flash','wrong-flash');
+
+  if (hintsOn && gameRunning && !chordDone) {
+    const c = chordSeq[chordIdx]; if (!c) return;
+    if (isLeft && c.lhNotes.includes(midi) && !lhDone) el.classList.add('lh-target');
+    if (!isLeft) {
+      const pc = midi % 12;
+      if (c.rhPCs.includes(pc) && !rhDone) el.classList.add('rh-target');
+    }
+  }
+}
+
+// ─── Bubble renderers ────────────────────────────────────────────────
+function renderLHBubbles(c) {
+  const wrap = document.getElementById('lh-bubbles');
+  wrap.innerHTML = '';
+  const labels = shellMode === '17' ? ['root','7th'] : ['root','6th'];
+  c.lhNotes.forEach((m, i) => {
+    const div = document.createElement('div');
+    const isHeld  = lhHeld.has(m);
+    const isWrong = lhWrong.has(m);
+    div.className = 'lh-bubble' + (isHeld ? ' held' : '') + (isWrong ? ' wrong' : '');
+    div.innerHTML = `<span>${NOTE_NAMES[m%12]}</span><span class="bub-role">${labels[i]||''}</span>`;
+    wrap.appendChild(div);
+  });
+}
+
+function renderRHBubbles(c) {
+  const wrap = document.getElementById('rh-bubbles');
+  wrap.innerHTML = '';
+  const roleLabels = ['root','3rd','5th','7th'];
+  const heldPCs = new Set([...rhHeld].map(m => m % 12));
+  c.rhPCs.forEach((pc, i) => {
+    const div = document.createElement('div');
+    const isHeld  = heldPCs.has(pc);
+    const isWrong = [...rhWrong].some(m => m % 12 === pc);
+    div.className = 'rh-bubble' + (isHeld ? ' held' : '') + (isWrong ? ' wrong' : '');
+    div.innerHTML = `<span>${NOTE_NAMES[pc]}</span><span class="bub-role">${roleLabels[i]||''}</span>`;
+    wrap.appendChild(div);
+  });
+}
+
+function setHandStatus(hand, state) {
+  const el = document.getElementById(hand + '-status');
+  el.className = 'hand-status ' + state;
+  el.textContent = state === 'waiting' ? 'waiting'
+                 : state === 'partial' ? 'in progress'
+                 : state === 'done'    ? '✓ done'
+                 : '✗ wrong notes';
+}
+
+// ─── Feedback ───────────────────────────────────────────────────────
+function setFeedback(msg, color) {
+  const el = document.getElementById('feedback-text');
+  el.textContent = msg; el.style.color = color;
+}
+function flashFeedback(bg) {
+  const bar = document.getElementById('feedback-bar');
+  bar.style.background = bg;
+  setTimeout(() => bar.style.background = '', 350);
+}
+
+// ─── Stats ──────────────────────────────────────────────────────────
+function updateStats() {
+  document.getElementById('s-score').textContent = score.toLocaleString();
+  document.getElementById('s-acc').textContent   = total ? Math.round(correct/total*100)+'%' : '—';
+  document.getElementById('s-chord').textContent = correct+'/'+total;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  End game
+// ═══════════════════════════════════════════════════════════════════════
+function endGame() {
+  gameRunning = false;
+  clearAllKeyClasses();
+  clearTimeout(chordTimer); cancelAnimationFrame(timerAnimFrame);
+  setFeedback('Song complete!', '#a78bfa');
+  document.getElementById('progress-bar').style.width = '100%';
+  document.getElementById('btn-stop').style.display = 'none';
+  document.getElementById('lh-chord-name').textContent = '✓';
+  document.getElementById('rh-chord-name').textContent = '✓';
+  document.getElementById('lh-tag').textContent = '';
+  document.getElementById('rh-tag').textContent = '';
+  document.getElementById('lh-bubbles').innerHTML = '';
+  document.getElementById('rh-bubbles').innerHTML = '';
+  document.getElementById('inversion-hint').textContent = '';
+
+  const t   = chordSeq.length;
+  const acc = t ? Math.round(correct/t*100) : 0;
+  const grade = acc>=95?'S':acc>=85?'A':acc>=70?'B':acc>=55?'C':'D';
+  const gc    = acc>=95?'#e0c96e':acc>=85?'#4ade80':acc>=70?'#60a5fa':'#f87171';
+
+  setTimeout(() => {
+    const ov = document.getElementById('overlay');
+    ov.classList.remove('hidden');
+    ov.innerHTML = `
+      <div class="overlay-title">Song complete!</div>
+      <div style="font-size:52px;font-weight:500;color:${gc};line-height:1;">${grade}</div>
+      <div class="overlay-stats">
+        <div class="stat-block"><div class="stat-val">${score.toLocaleString()}</div><div class="stat-lbl">Score</div></div>
+        <div class="stat-block"><div class="stat-val">${acc}%</div><div class="stat-lbl">Accuracy</div></div>
+        <div class="stat-block"><div class="stat-val">${maxStreak}</div><div class="stat-lbl">Best streak</div></div>
+        <div class="stat-block"><div class="stat-val">${correct}/${t}</div><div class="stat-lbl">Correct</div></div>
+      </div>
+      <div style="width:100%;max-width:440px;">
+        <div class="section-label">Left hand shell</div>
+        <div class="diff-row" style="margin-top:5px;">
+          <button class="diff-btn ${shellMode==='17'?'sel':''}" id="d-17" onclick="selectShellDiff('17')">Root + 7th</button>
+          <button class="diff-btn ${shellMode==='16'?'sel':''}" id="d-16" onclick="selectShellDiff('16')">Root + 6th</button>
+        </div>
+      </div>
+      <div style="width:100%;max-width:440px;">
+        <div class="section-label">Timing</div>
+        <div class="diff-row" style="margin-top:5px;">
+          <button class="diff-btn ${timingMode==='free'?'sel':''}"  id="dt-free"  onclick="selectTimingDiff('free')">Free time</button>
+          <button class="diff-btn ${timingMode==='timed'?'sel':''}" id="dt-timed" onclick="selectTimingDiff('timed')">Strict tempo</button>
+        </div>
+      </div>
+      <button class="btn-big" onclick="startGame()">Play again</button>
+    `;
+  }, 900);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Controls
+// ═══════════════════════════════════════════════════════════════════════
+function setShell(s) {
+  shellMode = s;
+  document.getElementById('sp-17').classList.toggle('active', s === '17');
+  document.getElementById('sp-16').classList.toggle('active', s === '16');
+  if (gameRunning) startGame();
+}
+function selectShellDiff(s) {
+  shellMode = s;
+  document.getElementById('sp-17')?.classList.toggle('active', s === '17');
+  document.getElementById('sp-16')?.classList.toggle('active', s === '16');
+  document.getElementById('d-17')?.classList.toggle('sel', s === '17');
+  document.getElementById('d-16')?.classList.toggle('sel', s === '16');
+}
+function setTiming(t) {
+  timingMode = t;
+  document.getElementById('t-free').classList.toggle('active', t === 'free');
+  document.getElementById('t-timed').classList.toggle('active', t === 'timed');
+}
+function selectTimingDiff(t) {
+  timingMode = t;
+  setTiming(t);
+  document.getElementById('dt-free')?.classList.toggle('sel', t === 'free');
+  document.getElementById('dt-timed')?.classList.toggle('sel', t === 'timed');
+}
+function setMode(m) {
+  watchMode = m === 'watch';
+  document.getElementById('btn-play').classList.toggle('active', !watchMode);
+  document.getElementById('btn-watch').classList.toggle('active', watchMode);
+}
+function toggleHints() {
+  hintsOn = !hintsOn;
+  document.getElementById('hint-toggle').textContent = hintsOn ? 'Hints on' : 'Hints off';
+  clearAllKeyClasses();
+  if (hintsOn && gameRunning && !chordDone) applyHints(chordSeq[chordIdx]);
+}
+
+// Computer keyboard (maps to right-hand zone by default; use transposition)
+const KB_BASE = {'a':60,'s':62,'d':64,'f':65,'g':67,'h':69,'j':71,'k':72,'l':74,';':76,"'":77,'=':79,'w':61,'e':63,'t':66,'y':68,'u':70,'o':73,'p':75};
+document.addEventListener('keydown', e => {
+  if (e.repeat || e.ctrlKey || e.metaKey) return;
+  const m = KB_BASE[e.key.toLowerCase()]; if (m === undefined) return;
+  let midi = m + keyOffset;
+  while (midi > 84) midi -= 12; while (midi < 48) midi += 12;
+  handleNoteOn(midi, false);
+});
+document.addEventListener('keyup', e => {
+  const m = KB_BASE[e.key.toLowerCase()]; if (m === undefined) return;
+  let midi = m + keyOffset;
+  while (midi > 84) midi -= 12; while (midi < 48) midi += 12;
+  handleNoteOff(midi, false);
+});
+
+// Progress update (run each chord advance)
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ENGINE — Web Audio API backing track
+//  Drums (brushed jazz kit) + Walking bass + Chord pad
+// ═══════════════════════════════════════════════════════════════════════
+let audioCtx       = null;
+let masterGain     = null;
+let drumGain       = null;
+let bassGain       = null;
+let padGain        = null;
+let audioEnabled   = true;
+let audioRunning   = false;
+let schedulerTimer = null;
+let lookahead      = 0.1;   // seconds to schedule ahead
+let scheduleInterval = 25;  // ms between scheduler ticks
+let nextBeatTime   = 0;
+let beatCount      = 0;
+let barCount       = 0;
+let seqChordCursor = 0;     // which chord we're playing in the audio sequence
+
+// Pitch reference: MIDI note → frequency
+function midiFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+
+// ── Walking bass patterns for each chord (MIDI notes, relative to chord root) ──
+// 4 quarter-note pitches per bar; semitone offsets from root
+// Pattern tries to voice-lead into the next chord's root
+function walkingBass(rootMidi, chordPCs, nextRootMidi, barNum) {
+  // Keep bass in low register (octave 2-3)
+  let r = rootMidi; while (r > 50) r -= 12; while (r < 33) r += 12;
+  const pcs = chordPCs;
+  // Build a 4-note walk: root, chord tone up, chord tone, approach to next root
+  const tone = (semis) => { let n = r + semis; while (n > 55) n -= 12; return n; };
+  const fifth   = tone(7);
+  const third   = tone(pcs.includes((rootMidi+4)%12) ? 4 : 3);  // maj or min 3rd
+  const seventh = tone(pcs.includes((rootMidi+10)%12) ? 10 : 11);
+  let nr = nextRootMidi; while (nr > 55) nr -= 12; while (nr < 33) nr += 12;
+  // Chromatic approach from semitone below or above
+  const approach = (Math.abs(nr - r) <= 6) ? nr - 1 : nr + 1;
+
+  // Several patterns, rotate by bar
+  const patterns = [
+    [r, fifth,   third,   approach],
+    [r, seventh, fifth,   approach],
+    [r, third,   fifth,   approach],
+    [r, fifth,   seventh, approach],
+  ];
+  return patterns[barNum % patterns.length];
+}
+
+// ── Drum synthesizers ──
+function playKick(t) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  osc.connect(env); env.connect(drumGain);
+  osc.frequency.setValueAtTime(160, t);
+  osc.frequency.exponentialRampToValueAtTime(40, t + 0.08);
+  env.gain.setValueAtTime(1, t);
+  env.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+  osc.start(t); osc.stop(t + 0.2);
+}
+
+function playSnare(t) {
+  if (!audioCtx) return;
+  // Tone body
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  osc.connect(env); env.connect(drumGain);
+  osc.type = 'triangle'; osc.frequency.setValueAtTime(220, t);
+  env.gain.setValueAtTime(0.35, t);
+  env.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  osc.start(t); osc.stop(t + 0.15);
+  // Noise snare
+  const bufSize = Math.floor(audioCtx.sampleRate * 0.15);
+  const buf  = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.6;
+  const src  = audioCtx.createBufferSource();
+  const filt = audioCtx.createBiquadFilter();
+  const nenv = audioCtx.createGain();
+  src.buffer  = buf; filt.type = 'highpass'; filt.frequency.value = 1800;
+  src.connect(filt); filt.connect(nenv); nenv.connect(drumGain);
+  nenv.gain.setValueAtTime(0.45, t);
+  nenv.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  src.start(t); src.stop(t + 0.16);
+}
+
+function playHihat(t, open) {
+  if (!audioCtx) return;
+  const bufSize = Math.floor(audioCtx.sampleRate * (open ? 0.25 : 0.06));
+  const buf  = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+  const src  = audioCtx.createBufferSource();
+  const filt = audioCtx.createBiquadFilter();
+  const env  = audioCtx.createGain();
+  src.buffer = buf; filt.type = 'highpass'; filt.frequency.value = 7000;
+  src.connect(filt); filt.connect(env); env.connect(drumGain);
+  env.gain.setValueAtTime(open ? 0.25 : 0.18, t);
+  env.gain.exponentialRampToValueAtTime(0.001, t + (open ? 0.25 : 0.06));
+  src.start(t); src.stop(t + (open ? 0.28 : 0.08));
+}
+
+function playRide(t, accent) {
+  if (!audioCtx) return;
+  const bufSize = Math.floor(audioCtx.sampleRate * 0.35);
+  const buf  = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  // Metallic overtones
+  for (let i = 0; i < bufSize; i++) {
+    data[i] = (Math.sin(i * 0.8) + Math.sin(i * 1.3) + (Math.random() - 0.5) * 0.4) * 0.3;
+  }
+  const src  = audioCtx.createBufferSource();
+  const filt = audioCtx.createBiquadFilter();
+  const env  = audioCtx.createGain();
+  src.buffer = buf; filt.type = 'bandpass'; filt.frequency.value = 5000; filt.Q.value = 0.5;
+  src.connect(filt); filt.connect(env); env.connect(drumGain);
+  const vol = accent ? 0.28 : 0.18;
+  env.gain.setValueAtTime(vol, t);
+  env.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+  src.start(t); src.stop(t + 0.38);
+}
+
+// ── Acoustic double bass synthesizer ──
+// Models the plucked string attack (bow-like thump), harmonic series of a
+// double bass, and the woody body resonance with natural decay.
+function playBassNote(midi, t, dur) {
+  if (!audioCtx) return;
+  const freq = midiFreq(midi);
+  const ac = audioCtx;
+
+  // --- String model: additive harmonics with natural decay ratios ---
+  // Double bass harmonic series: fundamental drops fastest, overtones linger
+  // Amplitudes follow measured upright bass spectra (1/n with corrections)
+  const harmonics = [
+    { ratio: 1,    amp: 0.55, decay: 0.80 },  // fundamental
+    { ratio: 2,    amp: 0.28, decay: 1.10 },  // octave
+    { ratio: 3,    amp: 0.14, decay: 0.90 },  // fifth above octave
+    { ratio: 4,    amp: 0.09, decay: 0.70 },  // two octaves
+    { ratio: 5,    amp: 0.05, decay: 0.60 },  // major third
+    { ratio: 6,    amp: 0.03, decay: 0.50 },  // fifth
+  ];
+
+  const masterEnv = ac.createGain();
+  masterEnv.connect(bassGain);
+
+  harmonics.forEach(h => {
+    const osc = ac.createOscillator();
+    const env = ac.createGain();
+    osc.type      = 'sine';
+    osc.frequency.value = freq * h.ratio;
+    // Slight inharmonicity (real strings go slightly sharp on upper partials)
+    osc.frequency.value *= (1 + (h.ratio - 1) * 0.0008);
+
+    osc.connect(env);
+    env.connect(masterEnv);
+
+    // Sharp attack (bow/pluck impact), then ring with harmonic-specific decay
+    const attackT = t + 0.008;
+    const decayT  = Math.min(dur * 0.95, h.decay);
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(h.amp, attackT);
+    env.gain.exponentialRampToValueAtTime(h.amp * 0.55, t + 0.06);   // body thump transient
+    env.gain.exponentialRampToValueAtTime(0.001, t + decayT);
+
+    osc.start(t);
+    osc.stop(t + decayT + 0.05);
+  });
+
+  // --- Pluck noise transient (finger/bow on string attack thump) ---
+  const bufLen  = Math.floor(ac.sampleRate * 0.04);
+  const nBuf    = ac.createBuffer(1, bufLen, ac.sampleRate);
+  const nData   = nBuf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) nData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.3));
+  const nSrc    = ac.createBufferSource();
+  const nFilt   = ac.createBiquadFilter();
+  const nEnv    = ac.createGain();
+  nSrc.buffer   = nBuf;
+  nFilt.type    = 'bandpass'; nFilt.frequency.value = freq * 3; nFilt.Q.value = 1.2;
+  nSrc.connect(nFilt); nFilt.connect(nEnv); nEnv.connect(masterEnv);
+  nEnv.gain.setValueAtTime(0.18, t);
+  nEnv.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+  nSrc.start(t); nSrc.stop(t + 0.05);
+
+  // --- Body resonance: low-mid woody warmth ---
+  // Double bass body peaks around 80-200Hz depending on note
+  const bodyFreq = Math.min(freq * 1.8, 280);
+  const bodyOsc  = ac.createOscillator();
+  const bodyEnv  = ac.createGain();
+  const bodyFilt = ac.createBiquadFilter();
+  bodyOsc.type   = 'sine'; bodyOsc.frequency.value = bodyFreq;
+  bodyFilt.type  = 'peaking'; bodyFilt.frequency.value = bodyFreq;
+  bodyFilt.gain.value = 4; bodyFilt.Q.value = 2;
+  bodyOsc.connect(bodyFilt); bodyFilt.connect(bodyEnv); bodyEnv.connect(masterEnv);
+  bodyEnv.gain.setValueAtTime(0, t);
+  bodyEnv.gain.linearRampToValueAtTime(0.12, t + 0.025);
+  bodyEnv.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+  bodyOsc.start(t); bodyOsc.stop(t + 0.4);
+
+  // --- Master envelope: natural string release ---
+  masterEnv.gain.setValueAtTime(1, t);
+  masterEnv.gain.setValueAtTime(1, t + dur * 0.82);
+  masterEnv.gain.linearRampToValueAtTime(0, t + dur + 0.05);
+}
+
+// ── Chord pad (sparse jazz comping stabs) ──
+function playChordPad(pitches, t, dur) {
+  if (!audioCtx) return;
+  pitches.forEach((midi, i) => {
+    const freq = midiFreq(midi);
+    const osc  = audioCtx.createOscillator();
+    const env  = audioCtx.createGain();
+    osc.type   = 'sine'; osc.frequency.value = freq;
+    osc.connect(env); env.connect(padGain);
+    const vol = 0.18 - i * 0.02;
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(vol, t + 0.04);
+    env.gain.setValueAtTime(vol * 0.7, t + dur * 0.5);
+    env.gain.linearRampToValueAtTime(0, t + dur * 0.95);
+    osc.start(t); osc.stop(t + dur + 0.05);
+  });
+}
+
+// ── Jazz drum patterns ──
+// Standard jazz ride pattern with brushed feel
+// Beat positions within a bar of 4/4 (0-indexed quarter beats, with eighths as 0.5)
+// Jazz ride: beats 1, 1.5, 2.5, 3, 3.5  (swing feel)
+// Kick: 1, 3.  Snare (rim): 2, 4.  Hi-hat: 2, 4 (foot)
+const RIDE_BEATS     = [0, 0.67, 1.33, 2, 2.67];   // triplet swing eighths (jazz time)
+const KICK_BEATS     = [0, 2];
+const SNARE_BEATS    = [1, 3];
+const HIHAT_FOOT     = [1, 3];
+// 2-bar drum patterns rotate slightly
+function scheduleDrumBar(barT, beatDur, barNum) {
+  RIDE_BEATS.forEach((b, i) => {
+    playRide(barT + b * beatDur, i === 0 || i === 2);
+  });
+  KICK_BEATS.forEach(b  => playKick(barT + b * beatDur));
+  SNARE_BEATS.forEach(b => playSnare(barT + b * beatDur));
+}
+
+// ── Chord voicings for the pad (absolute midi, mid-register) ──
+function padVoicing(rhPCs) {
+  // Build a close-position voicing starting around MIDI 60-72
+  const sorted = [...rhPCs].sort((a,b) => a - b);
+  const base   = 60;
+  return sorted.map(pc => {
+    let m = base + ((pc - base % 12 + 12) % 12);
+    if (m < 60) m += 12;
+    return m;
+  });
+}
+
+// ── Main scheduler ──
+function scheduleAudio() {
+  if (!audioCtx || !audioRunning) return;
+  const now      = audioCtx.currentTime;
+  const beatDur  = 60 / currentBPM;
+  const barDur   = beatDur * 4;
+
+  while (nextBeatTime < now + lookahead) {
+    const beat    = beatCount % 4;
+    const isBar   = beat === 0;
+    const t       = nextBeatTime;
+
+    // ─ Drums: schedule bar at beat 0 ─
+    if (isBar) {
+      scheduleDrumBar(t, beatDur, barCount);
+    }
+
+    // ─ Bass: one note per beat ─
+    if (chordSeq.length > 0) {
+      const idx  = seqChordCursor % chordSeq.length;
+      const c    = chordSeq[idx];
+      const nextC = chordSeq[(idx + 1) % chordSeq.length];
+      const lhR  = c.lhRoot;
+      const nextR = nextC.lhRoot;
+      const barsForChord = c.bars;
+
+      if (isBar) {
+        // Figure out which bar within this chord we're on
+        const localBar = barCount % barsForChord;
+        const walk = walkingBass(lhR, c.rhPCs, nextR, localBar);
+        // Schedule 4 beats of walking bass
+        for (let b = 0; b < 4; b++) {
+          playBassNote(walk[b], t + b * beatDur, beatDur * 0.88);
+        }
+        // Chord pad: comp on beats 2 and 4 (or 1 and 3 on bar 2)
+        const compBeats = (localBar % 2 === 0) ? [1, 3] : [0.5, 2.5];
+        const voicing   = padVoicing(c.rhPCs);
+        compBeats.forEach(b => {
+          playChordPad(voicing, t + b * beatDur, beatDur * 1.6);
+        });
+
+        // Advance chord cursor after its bar count
+        if (localBar === barsForChord - 1) seqChordCursor++;
+      }
+    }
+
+    beatCount++;
+    if (beat === 3) barCount++;
+    nextBeatTime += beatDur;
+  }
+
+  schedulerTimer = setTimeout(scheduleAudio, scheduleInterval);
+}
+
+// ── Volume sliders ──
+function setVolume(v) {
+  if (!masterGain) return;
+  masterGain.gain.setTargetAtTime(v / 100, audioCtx.currentTime, 0.05);
+}
+
+// ── Init / start / stop ──
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain(); masterGain.gain.value = 0.7;
+  drumGain   = audioCtx.createGain(); drumGain.gain.value   = 0.9;
+  bassGain   = audioCtx.createGain(); bassGain.gain.value   = 1.1;
+  padGain    = audioCtx.createGain(); padGain.gain.value    = 0.7;
+  drumGain.connect(masterGain);
+  bassGain.connect(masterGain);
+  padGain.connect(masterGain);
+  masterGain.connect(audioCtx.destination);
+}
+
+function startAudio() {
+  if (!audioEnabled) return;
+  initAudio();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  beatCount       = 0;
+  barCount        = 0;
+  seqChordCursor  = 0;
+  nextBeatTime    = audioCtx.currentTime + 0.1;
+  audioRunning    = true;
+  clearTimeout(schedulerTimer);
+  scheduleAudio();
+}
+
+function stopAudio() {
+  audioRunning = false;
+  clearTimeout(schedulerTimer);
+  // Fade out master gain smoothly
+  if (masterGain && audioCtx) {
+    masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.15);
+    setTimeout(() => { if (masterGain) masterGain.gain.value = parseFloat(document.getElementById('vol-slider').value) / 100; }, 800);
+  }
+}
+
+function toggleAudio() {
+  audioEnabled = !audioEnabled;
+  const btn = document.getElementById('btn-audio');
+  if (audioEnabled) {
+    btn.textContent = '🎵 Band on';
+    btn.classList.remove('active');
+    if (gameRunning) startAudio();
+  } else {
+    btn.textContent = '🔇 Band off';
+    btn.classList.add('active');
+    stopAudio();
+  }
+}
+
+function stopGame() {
+  if (!gameRunning) return;
+  gameRunning = false;
+  clearTimeout(chordTimer);
+  cancelAnimationFrame(timerAnimFrame);
+  stopAudio();
+  clearAllKeyClasses();
+  lhHeld.clear(); rhHeld.clear(); lhWrong.clear(); rhWrong.clear();
+  document.getElementById('lh-chord-name').textContent = '—';
+  document.getElementById('rh-chord-name').textContent = '—';
+  document.getElementById('lh-tag').textContent = '';
+  document.getElementById('rh-tag').textContent = '';
+  document.getElementById('lh-bubbles').innerHTML = '';
+  document.getElementById('rh-bubbles').innerHTML = '';
+  document.getElementById('inversion-hint').textContent = '';
+  document.getElementById('timer-bar-wrap').style.display = 'none';
+  document.getElementById('timer-bar').style.width = '100%';
+  document.getElementById('feedback-text').textContent = 'Stopped — press Restart to play again';
+  document.getElementById('feedback-text').style.color = '#6b7280';
+  setHandStatus('lh', 'waiting');
+  setHandStatus('rh', 'waiting');
+  document.getElementById('combo-display').textContent = '';
+  // Reset chip highlights
+  document.querySelectorAll('.chord-chip').forEach(ch => ch.classList.remove('active'));
+  document.getElementById('btn-stop').style.display = 'none';
+  // Keep Restart visible so they can go again
+}
+
+window.stopGame    = stopGame;
+
+window.toggleAudio = toggleAudio;
+window.setVolume   = setVolume;
+
+// ── Patch startGame and endGame to drive audio ──
+const _origStartGame = startGame;
+startGame = function() {
+  _origStartGame();
+  seqChordCursor = 0;
+  stopAudio();
+  setTimeout(startAudio, 80);  // slight delay lets overlay close first
+};
+
+const _origEndGame = endGame;
+endGame = function() {
+  _origEndGame();
+  stopAudio();
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Init
+// ═══════════════════════════════════════════════════════════════════════
+buildKeyboard();
+buildKeySelector();
+initMIDI();
+// Re-expose after patching
+window.startGame = startGame;
+window.endGame   = endGame;
+window.setMode = setMode; window.toggleHints = toggleHints;
+window.setTempo = setTempo; window.adjustTempo = adjustTempo;
+window.setShell = setShell; window.selectShellDiff = selectShellDiff;
+window.setTiming = setTiming; window.selectTimingDiff = selectTimingDiff;
+window.addEventListener('resize', buildKeyboard);
+</script>
+</body>
+</html>
