@@ -77,25 +77,26 @@ h1 {
 .tempo-btn:hover { background: #2a2050; color: #a78bfa; }
 
 /* ── CHORD STRIP ── */
-#chord-strip-wrap {
-  width: 100%; background: #0a0c12; border-bottom: 1px solid #1e2333;
-  overflow: hidden; height: 56px;
+/* ── SHEET MUSIC ── */
+#sheet-wrap {
+  width: 100%; background: #f5f0e8;
+  border-bottom: 2px solid #1e2333;
+  overflow-x: hidden; overflow-y: hidden;
+  position: relative; height: 160px; cursor: default;
 }
-#chord-strip {
-  display: flex; align-items: center; height: 100%; padding: 0 16px; gap: 0;
-  transition: transform 0.35s cubic-bezier(0.4,0,0.2,1); white-space: nowrap;
+#sheet-canvas {
+  display: block; height: 160px;
+  image-rendering: crisp-edges;
+  position: absolute; top: 0; left: 0;
 }
-.chord-chip {
-  display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
-  min-width: 68px; height: 44px; border-radius: 7px; padding: 0 10px; flex-shrink: 0;
-  font-size: 14px; font-weight: 500; color: #3a3f54; border: 1px solid transparent; margin: 0 3px;
-  transition: all 0.2s;
+#sheet-cursor {
+  position: absolute; top: 0;
+  width: 2px; height: 160px;
+  background: rgba(167,139,250,0.9);
+  box-shadow: 0 0 10px rgba(167,139,250,0.7), 0 0 3px rgba(167,139,250,1);
+  pointer-events: none; z-index: 4;
+  will-change: transform;
 }
-.chord-chip .chip-sub { font-size: 9px; color: #2a2f3e; margin-top: 1px; letter-spacing: 0.05em; }
-.chord-chip.active { background: #1e1040; border-color: #7c5fba; color: #a78bfa; font-size: 16px; }
-.chord-chip.active .chip-sub { color: #5040a0; }
-.chord-chip.passed  { color: #2a2f3e; }
-.chord-chip.passed.ok { color: #1a4a2a; }
 
 /* ── MAIN DISPLAY ── */
 #main-display {
@@ -312,7 +313,7 @@ h1 {
   <div id="topbar">
     <div>
       <div class="song-title" id="top-title">Autumn Leaves — Two-Hand Voicing</div>
-      <div class="song-sub"   id="top-sub">Left hand: shell (root + 7th/6th) · Right hand: full chord, any inversion</div>
+      <div class="song-sub"   id="top-sub">Left hand: root + top note of chord · Right hand: full chord, any inversion</div>
     </div>
     <div id="stats">
       <div class="stat-block"><div class="stat-val" id="s-score">0</div><div class="stat-lbl">Score</div></div>
@@ -338,14 +339,17 @@ h1 {
     </div>
   </div>
 
-  <!-- chord strip -->
-  <div id="chord-strip-wrap"><div id="chord-strip"></div></div>
+  <!-- sheet music -->
+  <div id="sheet-wrap">
+    <canvas id="sheet-canvas"></canvas>
+    <div id="sheet-cursor" style="left:0px"></div>
+  </div>
 
   <!-- main two-panel display -->
   <div id="main-display">
     <!-- LEFT HAND -->
     <div class="hand-panel">
-      <div class="hand-label lh-label">Left hand — shell</div>
+      <div class="hand-label lh-label">Left hand — root + top note</div>
       <div class="hand-chord-name lh-name" id="lh-chord-name">—</div>
       <div class="hand-tag" id="lh-tag"></div>
       <div class="lh-bubbles" id="lh-bubbles"></div>
@@ -379,9 +383,7 @@ h1 {
       <button class="btn"        id="btn-watch" onclick="setMode('watch')">Watch</button>
     </div>
     <div class="shell-pick">
-      <span class="settings-label">LH shell:</span>
-      <button class="spill active" id="sp-17" onclick="setShell('17')">Root + 7th</button>
-      <button class="spill"        id="sp-16" onclick="setShell('16')">Root + 6th</button>
+      <span class="settings-label" style="color:#60a5fa;">LH: root + top note</span>
     </div>
     <div class="shell-pick">
       <span class="settings-label">Timing:</span>
@@ -404,7 +406,7 @@ h1 {
   <div id="overlay">
     <div class="overlay-title">Two-Hand Voicing Practice</div>
     <div class="overlay-sub">
-      Left hand plays the <strong>shell</strong>: root + 7th (or 6th for minor chords) in the lower octave.<br>
+      Left hand plays <strong>root + top note</strong> of the chord in the lower octave.<br>
       Right hand plays the <strong>full chord</strong> in any inversion — pitch classes are checked, not exact octaves.
     </div>
     <div id="midi-overlay-status"></div>
@@ -412,13 +414,6 @@ h1 {
       <span class="lh-dot"></span><span style="color:#60a5fa;font-size:12px;">Left hand</span>
       &nbsp;&nbsp;
       <span class="rh-dot"></span><span style="color:#fb923c;font-size:12px;">Right hand</span>
-    </div>
-    <div style="width:100%;max-width:440px;">
-      <div class="section-label">Left hand shell interval</div>
-      <div class="diff-row" style="margin-top:5px;">
-        <button class="diff-btn sel" id="d-17" onclick="selectShellDiff('17')">Root + 7th</button>
-        <button class="diff-btn"     id="d-16" onclick="selectShellDiff('16')">Root + 6th</button>
-      </div>
     </div>
     <div style="width:100%;max-width:440px;">
       <div class="section-label">Timing</div>
@@ -447,58 +442,38 @@ const MIDI_END   = 96;
 const BASE_BPM   = 112;
 const SPLIT_MIDI = 60;   // C4 — notes below this = left hand zone, at/above = right hand zone
 
-// Shell voicings in Gm:
-//   "17" = root (low octave) + minor 7th (or dom 7th / maj 7th)
-//   "16" = root (low octave) + major 6th / minor 6th (context-dependent)
-//
-// For jazz shells the practical rule:
-//   Minor 7 chords  → root + m7  (or root + 6 for shell "16" mode)
-//   Dominant 7      → root + b7
-//   Major 7         → root + maj7 (or root + 6 in shell "16")
-//   Half-dim        → root + m7
-//   Minor (no 7)    → root + m7 (or root + 6)
-//
-// All pitches here are relative to C=0 within one octave
-// lhShell17 = [root, 7th]  lhShell16 = [root, 6th]
-// rhNotes = all chord tones (pitch classes only — inversion free)
-
+// Chord data (original key: Gm)
+// lhRoot = absolute midi of root note (low register)
+// rh = chord tone pitch classes in order [root, 3rd, 5th, 7th/top]
+// Left hand always plays: lhRoot + rh[3] (top note of the chord voicing)
 const CHORD_CHART_BASE = [
-  // chord name, quality tag, bars, lhRoot (absolute midi, low register), lhInterval17, lhInterval16, rhPitchClasses
-  // lhInterval = semitones above root for the upper shell note
-  // Cm7: root C, m7=Bb(10), m6=Ab(8) — rh: C Eb G Bb
-  { name:'Cm7',    tag:'minor 7',         bars:1, lhRoot:48, i17:10, i16:8,  rh:[0,3,7,10] },
-  // F7: root F, b7=Eb(10), 6=D(9) — rh: F A C Eb
-  { name:'F7',     tag:'dominant 7',      bars:1, lhRoot:41, i17:10, i16:9,  rh:[5,9,0,3]  },
-  // Bbmaj7: root Bb, maj7=A(11), 6=G(9) — rh: Bb D F A
-  { name:'B♭maj7', tag:'major 7',         bars:1, lhRoot:46, i17:11, i16:9,  rh:[10,2,5,9] },
-  // Ebmaj7: root Eb, maj7=D(11), 6=C(9) — rh: Eb G Bb D
-  { name:'E♭maj7', tag:'major 7',         bars:1, lhRoot:51, i17:11, i16:9,  rh:[3,7,10,2] },
-  // Am7b5: root A, m7=G(10), m6=F(8) — rh: A C Eb G
-  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, i17:10, i16:8,  rh:[9,0,3,7]  },
-  // D7: root D, b7=C(10), 6=B(9) — rh: D F# A C
-  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, i17:10, i16:9,  rh:[2,6,9,0]  },
-  // Gm: root G, m7=F(10), m6=Eb(8) — rh: G Bb D (F optional)
-  { name:'Gm',     tag:'minor',           bars:2, lhRoot:43, i17:10, i16:8,  rh:[7,10,2,5] },
+  { name:'Cm7',    tag:'minor 7',         bars:1, lhRoot:48, rh:[0,3,7,10] },
+  { name:'F7',     tag:'dominant 7',      bars:1, lhRoot:41, rh:[5,9,0,3]  },
+  { name:'B♭maj7', tag:'major 7',         bars:1, lhRoot:46, rh:[10,2,5,9] },
+  { name:'E♭maj7', tag:'major 7',         bars:1, lhRoot:51, rh:[3,7,10,2] },
+  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, rh:[9,0,3,7]  },
+  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, rh:[2,6,9,0]  },
+  { name:'Gm',     tag:'minor',           bars:2, lhRoot:43, rh:[7,10,2,5] },
   // --- A section repeat ---
-  { name:'Cm7',    tag:'minor 7',         bars:1, lhRoot:48, i17:10, i16:8,  rh:[0,3,7,10] },
-  { name:'F7',     tag:'dominant 7',      bars:1, lhRoot:41, i17:10, i16:9,  rh:[5,9,0,3]  },
-  { name:'B♭maj7', tag:'major 7',         bars:1, lhRoot:46, i17:11, i16:9,  rh:[10,2,5,9] },
-  { name:'E♭maj7', tag:'major 7',         bars:1, lhRoot:51, i17:11, i16:9,  rh:[3,7,10,2] },
-  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, i17:10, i16:8,  rh:[9,0,3,7]  },
-  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, i17:10, i16:9,  rh:[2,6,9,0]  },
-  { name:'Gm',     tag:'minor',           bars:2, lhRoot:43, i17:10, i16:8,  rh:[7,10,2,5] },
+  { name:'Cm7',    tag:'minor 7',         bars:1, lhRoot:48, rh:[0,3,7,10] },
+  { name:'F7',     tag:'dominant 7',      bars:1, lhRoot:41, rh:[5,9,0,3]  },
+  { name:'B♭maj7', tag:'major 7',         bars:1, lhRoot:46, rh:[10,2,5,9] },
+  { name:'E♭maj7', tag:'major 7',         bars:1, lhRoot:51, rh:[3,7,10,2] },
+  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, rh:[9,0,3,7]  },
+  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, rh:[2,6,9,0]  },
+  { name:'Gm',     tag:'minor',           bars:2, lhRoot:43, rh:[7,10,2,5] },
   // --- B section ---
-  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, i17:10, i16:8,  rh:[9,0,3,7]  },
-  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, i17:10, i16:9,  rh:[2,6,9,0]  },
-  { name:'Gm',     tag:'minor',           bars:2, lhRoot:43, i17:10, i16:8,  rh:[7,10,2,5] },
-  { name:'Cm7',    tag:'minor 7',         bars:1, lhRoot:48, i17:10, i16:8,  rh:[0,3,7,10] },
-  { name:'F7',     tag:'dominant 7',      bars:1, lhRoot:41, i17:10, i16:9,  rh:[5,9,0,3]  },
-  { name:'B♭maj7', tag:'major 7',         bars:1, lhRoot:46, i17:11, i16:9,  rh:[10,2,5,9] },
-  { name:'E♭maj7', tag:'major 7',         bars:1, lhRoot:51, i17:11, i16:9,  rh:[3,7,10,2] },
+  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, rh:[9,0,3,7]  },
+  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, rh:[2,6,9,0]  },
+  { name:'Gm',     tag:'minor',           bars:2, lhRoot:43, rh:[7,10,2,5] },
+  { name:'Cm7',    tag:'minor 7',         bars:1, lhRoot:48, rh:[0,3,7,10] },
+  { name:'F7',     tag:'dominant 7',      bars:1, lhRoot:41, rh:[5,9,0,3]  },
+  { name:'B♭maj7', tag:'major 7',         bars:1, lhRoot:46, rh:[10,2,5,9] },
+  { name:'E♭maj7', tag:'major 7',         bars:1, lhRoot:51, rh:[3,7,10,2] },
   // --- Final A ---
-  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, i17:10, i16:8,  rh:[9,0,3,7]  },
-  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, i17:10, i16:9,  rh:[2,6,9,0]  },
-  { name:'Gm7',    tag:'minor 7',         bars:2, lhRoot:43, i17:10, i16:8,  rh:[7,10,2,5] },
+  { name:'Am7♭5',  tag:'half diminished', bars:1, lhRoot:45, rh:[9,0,3,7]  },
+  { name:'D7',     tag:'dominant 7',      bars:1, lhRoot:50, rh:[2,6,9,0]  },
+  { name:'Gm7',    tag:'minor 7',         bars:2, lhRoot:43, rh:[7,10,2,5] },
 ];
 
 const KEYS = [
@@ -520,7 +495,6 @@ function transposeChordName(chord, s) {
 //  State
 // ═══════════════════════════════════════════════════════════════════════
 let keyOffset  = 0;
-let shellMode  = '17';   // '17' or '16'
 let timingMode = 'free'; // 'free' or 'timed'
 let watchMode  = false;
 let hintsOn    = true;
@@ -551,19 +525,21 @@ const KB_MAP = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════
-//  Build chord sequence from base data + transposition + shell mode
+//  Build chord sequence from base data + transposition
 // ═══════════════════════════════════════════════════════════════════════
 function buildSeq() {
   return CHORD_CHART_BASE.map(c => {
-    // Left hand: root + shell interval, in the low register
+    // Left hand: root (low register) + top note of the chord (rh[3] pitch class)
     let lhRoot = c.lhRoot + keyOffset;
     while (lhRoot > 55) lhRoot -= 12;
     while (lhRoot < 36) lhRoot += 12;
-    const interval = shellMode === '17' ? c.i17 : c.i16;
-    let lhUpper = lhRoot + interval;
-    // Ensure upper note stays below split and sounds good
-    while (lhUpper >= SPLIT_MIDI) lhUpper -= 12;
-    while (lhUpper <= lhRoot)     lhUpper += 12;
+
+    // Top note = last pitch class in rh[], transposed, placed just above root in LH register
+    const topPC = (c.rh[3] + keyOffset + 12) % 12;
+    let lhUpper = lhRoot + ((topPC - lhRoot % 12 + 12) % 12);
+    if (lhUpper === lhRoot) lhUpper += 12;         // avoid unison
+    while (lhUpper >= SPLIT_MIDI) lhUpper -= 12;   // keep below split
+    while (lhUpper <= lhRoot)     lhUpper += 12;   // must be above root
     const lhNotes = [lhRoot, lhUpper];
 
     // Right hand: all 4 pitch classes, any octave at/above split
@@ -576,7 +552,7 @@ function buildSeq() {
       lhNotes,          // exact midi numbers required
       rhPCs,            // pitch classes (mod 12) — any octave accepted
       lhRoot,
-      interval,
+      topNoteName: NOTE_NAMES[topPC],
     };
   });
 }
@@ -591,7 +567,7 @@ function buildKeySelector() {
     const b = document.createElement('button');
     b.className = 'key-pill' + (k.offset === keyOffset ? ' sel' : '');
     b.textContent = k.name;
-    b.onclick = () => { keyOffset = k.offset; buildKeySelector(); buildKeyboard(); if (gameRunning) startGame(); };
+    b.onclick = () => { keyOffset = k.offset; buildKeySelector(); buildKeyboard(); chordSeq = buildSeq(); rebuildSheet(); if (gameRunning) startGame(); };
     sel.appendChild(b);
   });
 }
@@ -733,35 +709,408 @@ function startGame() {
   chordSeq = buildSeq();
   chordIdx  = 0;
   gameRunning = true;
-  buildStrip();
+  rebuildSheet();
+  cursorAnimFrame = null;   // ensure clean start
+  chordStartMs = performance.now();
   showChord(0);
+  startCursorAnim();
   updateStats();
 }
 
-function buildStrip() {
-  const strip = document.getElementById('chord-strip');
-  strip.innerHTML = '';
-  chordSeq.forEach((c, i) => {
-    const ch = document.createElement('div');
-    ch.className = 'chord-chip'; ch.id = 'chip-' + i;
-    ch.innerHTML = `<span>${c.name}</span><span class="chip-sub">${c.bars === 2 ? '2 bars' : '1 bar'}</span>`;
-    strip.appendChild(ch);
-  });
+// ═══════════════════════════════════════════════════════════════════════
+//  SHEET MUSIC RENDERER
+//  Draws a grand staff (treble + bass) with chord symbols, note heads,
+//  stems, accidentals, bar lines, clef, time sig, and key signature.
+//  A cursor div slides in real time over the canvas.
+// ═══════════════════════════════════════════════════════════════════════
+let sheetBarXPositions = [];   // x pixel of beat-1 for each chord index
+let sheetTotalWidth    = 0;
+let sheetScrollLeft    = 0;
+let cursorAnimFrame    = null;
+let chordStartMs       = 0;    // wall-clock ms when current chord began
+
+const SH = 160;          // total canvas height
+const TREBLE_TOP = 14;   // top of treble staff (5 lines × step apart)
+const BASS_TOP   = 92;   // top of bass staff
+const STEP       = 7;    // pixels between staff lines (half-space = 3.5)
+const LINE_GAP   = STEP; // distance between adjacent staff lines
+
+// MIDI note → staff position relative to treble staff middle C (C4 = MIDI 60)
+// Positive = below middle C (ledger lines down), negative = above
+// Staff position 0 = B4 (first ledger line below treble staff top)
+// Each staff "step" is a diatonic half-step
+function midiToTreblePos(midi) {
+  // Treble staff: bottom line = E4 (pos 0 from bottom), each line/space = 1 step
+  // We compute diatonic position from C4
+  const octave = Math.floor(midi / 12) - 1;
+  const pc     = midi % 12;
+  // Diatonic semitone → line/space offset from C (within octave)
+  const diaMap = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6]; // C=0,D=1,E=2,F=3,G=4,A=5,B=6
+  const diaPos = diaMap[pc] + octave * 7;
+  // C4 = MIDI 60, diatonic pos for C4 = 3*7+0 = 21 (C octave 4)
+  // Treble staff bottom line (E4) = diaPos 23
+  // We want pixel y on the canvas: higher notes = smaller y
+  // step 0 from bottom of treble = E4, each step up = -STEP/2 px
+  const bottomLinePos = 23; // E4 diatonic
+  const stepsFromBottom = diaPos - bottomLinePos;
+  return TREBLE_TOP + (8 - stepsFromBottom) * (STEP / 2);
 }
 
-function scrollStrip(idx) {
-  const strip = document.getElementById('chord-strip');
-  const chip  = document.getElementById('chip-' + idx); if (!chip) return;
-  const wrap  = document.getElementById('chord-strip-wrap');
-  const t     = chip.offsetLeft - wrap.offsetWidth / 2 + chip.offsetWidth / 2;
-  strip.style.transform = `translateX(${-Math.max(0, t)}px)`;
+function midiToBassPos(midi) {
+  const octave = Math.floor(midi / 12) - 1;
+  const pc     = midi % 12;
+  const diaMap = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6];
+  const diaPos = diaMap[pc] + octave * 7;
+  // Bass staff bottom line = G2, diatonic pos for G2 = 1*7+4 = 11
+  const bottomLinePos = 11; // G2 diatonic
+  const stepsFromBottom = diaPos - bottomLinePos;
+  return BASS_TOP + (8 - stepsFromBottom) * (STEP / 2);
+}
+
+function isBlackPc(pc) { return [1,3,6,8,10].includes(pc); }
+function needsSharp(pc, keyOff) {
+  // Simplified: show sharp/flat based on whether the pitch class is accidental
+  // relative to the major scale of the key. For display we show ♭ for flat keys.
+  const flatKeys  = [5,10,3,8,1,6]; // F,Bb,Eb,Ab,Db,Gb
+  const sharpKeys = [7,2,9,4,11];   // G,D,A,E,B
+  const sharpPCs  = {0:[],7:[6],2:[6,1],9:[6,1,8],4:[6,1,8,3],11:[6,1,8,3,10]};
+  const flatPCs   = {5:[10],10:[10,3],3:[10,3,8],8:[10,3,8,1],1:[10,3,8,1,6],6:[10,3,8,1,6,11]};
+  // For each pitch class, decide which accidental to show
+  return isBlackPc(pc);
+}
+
+const ACCIDENTAL_LABEL = {1:'♭',3:'♭',6:'♯',8:'♭',10:'♭'}; // simple
+
+function drawAccidental(ctx, pc, x, y, size) {
+  const lbl = ACCIDENTAL_LABEL[pc];
+  if (!lbl) return;
+  ctx.font = `bold ${size * 1.3}px serif`;
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillText(lbl, x - size * 1.1, y + size * 0.35);
+}
+
+function drawNoteHead(ctx, x, y, filled, size) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(x, y, size * 1.1, size * 0.8, -0.2, 0, Math.PI * 2);
+  ctx.fillStyle = filled ? '#1a1a1a' : '#fff';
+  ctx.fill();
+  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawStem(ctx, x, yNote, up, len) {
+  const sx = up ? x + 5 : x - 5;
+  const ey = up ? yNote - len : yNote + len;
+  ctx.beginPath();
+  ctx.moveTo(sx, yNote);
+  ctx.lineTo(sx, ey);
+  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.2;
+  ctx.stroke();
+}
+
+function drawLedgerLines(ctx, x, y, staffTop, size) {
+  // Draw ledger lines above or below staff as needed
+  const lineY = (n) => staffTop + n * (STEP / 2);
+  const noteStep = Math.round((y - staffTop) / (STEP / 2));
+  // Below staff (step > 8)
+  if (noteStep >= 10) {
+    for (let s = 10; s <= noteStep; s += 2) {
+      const ly = lineY(s);
+      ctx.beginPath();
+      ctx.moveTo(x - size * 2, ly); ctx.lineTo(x + size * 2, ly);
+      ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+  // Above staff (step < 0)
+  if (noteStep <= -2) {
+    for (let s = -2; s >= noteStep; s -= 2) {
+      const ly = lineY(s);
+      ctx.beginPath();
+      ctx.moveTo(x - size * 2, ly); ctx.lineTo(x + size * 2, ly);
+      ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+}
+
+function drawStaff(ctx, top, width, startX) {
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 0.8;
+  for (let i = 0; i < 5; i++) {
+    const y = top + i * STEP;
+    ctx.beginPath();
+    ctx.moveTo(startX, y); ctx.lineTo(startX + width, y);
+    ctx.stroke();
+  }
+}
+
+function drawTrebleClef(ctx, x, top) {
+  // Unicode treble clef glyph rendered large
+  ctx.font = `${STEP * 6.5}px serif`;
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillText('𝄞', x - 2, top + STEP * 6.2);
+}
+
+function drawBassClef(ctx, x, top) {
+  ctx.font = `${STEP * 4}px serif`;
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillText('𝄢', x - 1, top + STEP * 4.2);
+}
+
+function drawTimeSignature(ctx, x, top) {
+  ctx.font = `bold ${STEP * 2}px serif`;
+  ctx.fillStyle = '#1a1a1a';
+  ctx.textAlign = 'center';
+  ctx.fillText('4', x, top + STEP * 2.2);
+  ctx.fillText('4', x, top + STEP * 4.2);
+}
+
+function drawBarLine(ctx, x, isDouble) {
+  ctx.strokeStyle = '#333'; ctx.lineWidth = isDouble ? 2 : 1;
+  ctx.beginPath();
+  ctx.moveTo(x, TREBLE_TOP);
+  ctx.lineTo(x, TREBLE_TOP + STEP * 4);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x, BASS_TOP);
+  ctx.lineTo(x, BASS_TOP + STEP * 4);
+  ctx.stroke();
+  // Grand staff brace connector
+  ctx.strokeStyle = '#bbb'; ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(x, TREBLE_TOP);
+  ctx.lineTo(x, BASS_TOP + STEP * 4);
+  ctx.stroke();
+}
+
+function buildSheet(seq) {
+  const wrap   = document.getElementById('sheet-wrap');
+  const canvas = document.getElementById('sheet-canvas');
+  const W      = Math.max(wrap.offsetWidth, 400);
+  const wrapW  = wrap.offsetWidth;
+
+  // Layout constants
+  const MARGIN_LEFT  = 60;  // space for clef + time sig
+  const BAR_WIDTH    = 90;  // pixels per bar of music
+  const BEAT_OFFSET  = 30;  // beats are offset within bar for notes
+
+  // Calculate total bar count
+  let totalBars = 0;
+  seq.forEach(c => { totalBars += c.bars; });
+
+  const totalWidth = MARGIN_LEFT + totalBars * BAR_WIDTH + 20;
+  canvas.width     = totalWidth;
+  canvas.height    = SH;
+  sheetTotalWidth  = totalWidth;
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, totalWidth, SH);
+
+  // Background
+  ctx.fillStyle = '#f5f0e8';
+  ctx.fillRect(0, 0, totalWidth, SH);
+
+  // Draw grand staff lines (continuous)
+  drawStaff(ctx, TREBLE_TOP, totalWidth - 4, 2);
+  drawStaff(ctx, BASS_TOP, totalWidth - 4, 2);
+
+  // Grand staff vertical connector
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(2, TREBLE_TOP);
+  ctx.lineTo(2, BASS_TOP + STEP * 4);
+  ctx.stroke();
+
+  // Clef + time sig
+  drawTrebleClef(ctx, 4, TREBLE_TOP);
+  drawBassClef(ctx, 4, BASS_TOP);
+  drawTimeSignature(ctx, MARGIN_LEFT - 14, TREBLE_TOP);
+  drawTimeSignature(ctx, MARGIN_LEFT - 14, BASS_TOP);
+
+  // Brace glyph on far left
+  ctx.font = `${SH * 0.55}px serif`;
+  ctx.fillStyle = '#333';
+  ctx.textAlign = 'left';
+  ctx.fillText('⎧', -4, TREBLE_TOP + (BASS_TOP + STEP * 4 - TREBLE_TOP) * 0.7);
+
+  // Layout: for each chord, record its x position, then draw its notes
+  sheetBarXPositions = [];
+  let barX = MARGIN_LEFT;
+  const NOTE_SIZE = 4;
+
+  seq.forEach((c, ci) => {
+    sheetBarXPositions.push(barX);
+
+    // Chord symbol above treble staff
+    ctx.font = `bold ${NOTE_SIZE * 2.8}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#3a1070';
+    ctx.textAlign = 'left';
+    ctx.fillText(c.name, barX + 4, TREBLE_TOP - 4);
+
+    // ── RIGHT HAND: whole chord in treble (all 4 pitch classes, stacked) ──
+    // Use a fixed octave voicing for display: voices spanning a 10th from C4
+    const rhMidis = voiceForDisplay(c.rhPCs, 60, 76);
+    rhMidis.forEach(midi => {
+      const y   = midiToTreblePos(midi);
+      const pc  = midi % 12;
+      const xn  = barX + BEAT_OFFSET;
+      drawLedgerLines(ctx, xn, y, TREBLE_TOP, NOTE_SIZE);
+      if (isBlackPc(pc)) drawAccidental(ctx, pc, xn, y, NOTE_SIZE);
+      drawNoteHead(ctx, xn, y, true, NOTE_SIZE);
+    });
+    // Single stem up for chord
+    if (rhMidis.length > 0) {
+      const topY = Math.min(...rhMidis.map(m => midiToTreblePos(m)));
+      const botY = Math.max(...rhMidis.map(m => midiToTreblePos(m)));
+      drawStem(ctx, barX + BEAT_OFFSET, botY, true, 28);
+    }
+
+    // ── LEFT HAND: two notes in bass staff ──
+    c.lhNotes.forEach(midi => {
+      const y   = midiToBassPos(midi);
+      const pc  = midi % 12;
+      const xn  = barX + BEAT_OFFSET;
+      drawLedgerLines(ctx, xn, y, BASS_TOP, NOTE_SIZE);
+      if (isBlackPc(pc)) drawAccidental(ctx, pc, xn, y, NOTE_SIZE);
+      drawNoteHead(ctx, xn, y, true, NOTE_SIZE);
+    });
+    // Stem down from lower note
+    if (c.lhNotes.length > 0) {
+      const topY = Math.min(...c.lhNotes.map(m => midiToBassPos(m)));
+      const botY = Math.max(...c.lhNotes.map(m => midiToBassPos(m)));
+      drawStem(ctx, barX + BEAT_OFFSET, topY, false, 28);
+    }
+
+    // ── Duration bracket: if 2 bars, draw tie or bracket ──
+    if (c.bars === 2) {
+      ctx.strokeStyle = '#9060c0';
+      ctx.lineWidth   = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(barX + BEAT_OFFSET + 8, TREBLE_TOP - 2);
+      ctx.lineTo(barX + BAR_WIDTH * 2 - 12, TREBLE_TOP - 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // ── Section labels ──
+    const sectionAt = [0, 8, 14, 22]; // chord indices where sections start
+    if (sectionAt.includes(ci)) {
+      const labels = ['A','A','B','A'];
+      ctx.font      = `italic ${NOTE_SIZE * 2.2}px serif`;
+      ctx.fillStyle = '#888';
+      ctx.textAlign = 'left';
+      ctx.fillText(labels[sectionAt.indexOf(ci)], barX, BASS_TOP + STEP * 4 + 14);
+    }
+
+    // Bar lines between every bar
+    for (let b = 1; b <= c.bars; b++) {
+      const bx = barX + b * BAR_WIDTH;
+      drawBarLine(ctx, bx, false);
+    }
+
+    barX += c.bars * BAR_WIDTH;
+  });
+
+  // Final double bar line
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(barX - 1, TREBLE_TOP); ctx.lineTo(barX - 1, TREBLE_TOP + STEP * 4); ctx.stroke();
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(barX + 2, TREBLE_TOP); ctx.lineTo(barX + 2, TREBLE_TOP + STEP * 4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(barX - 1, BASS_TOP);   ctx.lineTo(barX - 1, BASS_TOP + STEP * 4);   ctx.stroke();
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(barX + 2, BASS_TOP);   ctx.lineTo(barX + 2, BASS_TOP + STEP * 4);   ctx.stroke();
+}
+
+// Build a display voicing: given pitch classes, find actual midi notes
+// in the range [lo, hi] stacked as close-position voicing
+function voiceForDisplay(pcs, lo, hi) {
+  const sorted = [...pcs].sort((a, b) => a - b);
+  const result = [];
+  let baseOct  = Math.floor(lo / 12);
+  sorted.forEach(pc => {
+    let m = baseOct * 12 + pc;
+    while (m < lo)  m += 12;
+    while (m > hi)  m -= 12;
+    // If already used, push up an octave
+    while (result.includes(m)) m += 12;
+    if (m <= hi + 4) result.push(m);
+  });
+  return result.sort((a, b) => a - b);
+}
+
+function startCursorAnim() {
+  cancelAnimationFrame(cursorAnimFrame);
+
+  const BAR_WIDTH       = 90;
+  const BEAT_OFFSET     = 30;
+  const CURSOR_SCREEN_X = 120;
+
+  // Record the absolute canvas X where the cursor was when this chord started,
+  // and the wall-clock time. We advance linearly from there regardless of
+  // how long the player takes — cursor never clamps or freezes.
+  function frame() {
+    if (!gameRunning) return;
+
+    const c = chordSeq[chordIdx];
+    if (!c || chordIdx >= sheetBarXPositions.length) {
+      cursorAnimFrame = requestAnimationFrame(frame); return;
+    }
+
+    // Elapsed time since this chord started (unclamped — may exceed chord duration)
+    const elapsed = performance.now() - chordStartMs;
+    const barMs   = (60 / currentBPM) * 4 * 1000;
+    const chordW  = c.bars * BAR_WIDTH;
+    const chordMs = barMs * c.bars;
+
+    // Progress across this chord's pixel span — unclamped so cursor
+    // keeps moving past bar end if player hasn't hit the chord yet
+    const progress = elapsed / chordMs;
+    const absX = sheetBarXPositions[chordIdx] + BEAT_OFFSET - 6
+               + progress * (chordW - BEAT_OFFSET + 6);
+
+    // Translate canvas so absX lands at CURSOR_SCREEN_X
+    const scrollX = absX - CURSOR_SCREEN_X;
+    const canvas  = document.getElementById('sheet-canvas');
+    if (canvas) canvas.style.transform = `translateX(${-Math.max(0, scrollX)}px)`;
+
+    // Cursor screen position (clamp only at left edge, never at right)
+    const cursorEl = document.getElementById('sheet-cursor');
+    if (cursorEl) cursorEl.style.left = Math.min(CURSOR_SCREEN_X, absX) + 'px';
+
+    cursorAnimFrame = requestAnimationFrame(frame);
+  }
+
+  cursorAnimFrame = requestAnimationFrame(frame);
+}
+
+function stopCursorAnim() {
+  cancelAnimationFrame(cursorAnimFrame);
+  const cursorEl = document.getElementById('sheet-cursor');
+  const canvas   = document.getElementById('sheet-canvas');
+  if (cursorEl) cursorEl.style.left = '0px';
+  if (canvas)   canvas.style.transform = 'translateX(0)';
+}
+
+// Called each time a new chord becomes active
+function advanceCursorToChord(idx) {
+  // Record wall-clock time this chord began
+  chordStartMs = performance.now();
+  // Start (or keep running) the animation loop
+  if (gameRunning && !cursorAnimFrame) startCursorAnim();
+  // If already running, the loop reads chordIdx + chordStartMs directly — no restart needed
+}
+
+// Rebuild and re-draw sheet when key or seq changes
+function rebuildSheet() {
+  if (chordSeq.length > 0) {
+    buildSheet(chordSeq);
+  }
 }
 
 function showChord(idx) {
-  if (idx > 0) {
-    const prev = document.getElementById('chip-' + (idx-1));
-    if (prev) prev.classList.add('passed');
-  }
   chordIdx   = idx;
   chordDone  = false;
   lhDone     = false;
@@ -774,13 +1123,12 @@ function showChord(idx) {
   total++;
 
   const c = chordSeq[idx];
-  document.querySelectorAll('.chord-chip').forEach((ch, i) => ch.classList.toggle('active', i === idx));
-  scrollStrip(idx);
+  advanceCursorToChord(idx);
 
   // Update chord name displays
   document.getElementById('lh-chord-name').textContent = c.name;
   document.getElementById('rh-chord-name').textContent = c.name;
-  document.getElementById('lh-tag').textContent        = c.tag;
+  document.getElementById('lh-tag').textContent        = `root + ${c.topNoteName} (top note)`;
   document.getElementById('rh-tag').textContent        = 'any inversion';
 
   renderLHBubbles(c);
@@ -944,9 +1292,6 @@ function handleNoteOn(midi, fromMIDI, fromWatch) {
       document.getElementById('combo-display').textContent = '';
     }
 
-    const chip = document.getElementById('chip-' + chordIdx);
-    if (chip) chip.classList.add(anyWrong ? '' : 'ok');
-
     updateStats();
     const holdMs = timingMode === 'timed' ? Math.max(400, (60/currentBPM)*4*c.bars*1000*0.4) : 800;
     setTimeout(() => showChord(chordIdx + 1), holdMs);
@@ -975,13 +1320,13 @@ function handleNoteOff(midi, fromMIDI) {
 function renderLHBubbles(c) {
   const wrap = document.getElementById('lh-bubbles');
   wrap.innerHTML = '';
-  const labels = shellMode === '17' ? ['root','7th'] : ['root','6th'];
+  const labels = ['root', 'top'];
   c.lhNotes.forEach((m, i) => {
     const div = document.createElement('div');
     const isHeld  = lhHeld.has(m);
     const isWrong = lhWrong.has(m);
     div.className = 'lh-bubble' + (isHeld ? ' held' : '') + (isWrong ? ' wrong' : '');
-    div.innerHTML = `<span>${NOTE_NAMES[m%12]}</span><span class="bub-role">${labels[i]||''}</span>`;
+    div.innerHTML = `<span>${NOTE_NAMES[m%12]}</span><span class="bub-role">${labels[i]}</span>`;
     wrap.appendChild(div);
   });
 }
@@ -1035,6 +1380,7 @@ function endGame() {
   gameRunning = false;
   clearAllKeyClasses();
   clearTimeout(chordTimer); cancelAnimationFrame(timerAnimFrame);
+  stopCursorAnim();
   setFeedback('Song complete!', '#a78bfa');
   document.getElementById('progress-bar').style.width = '100%';
   document.getElementById('btn-stop').style.display = 'none';
@@ -1064,13 +1410,6 @@ function endGame() {
         <div class="stat-block"><div class="stat-val">${correct}/${t}</div><div class="stat-lbl">Correct</div></div>
       </div>
       <div style="width:100%;max-width:440px;">
-        <div class="section-label">Left hand shell</div>
-        <div class="diff-row" style="margin-top:5px;">
-          <button class="diff-btn ${shellMode==='17'?'sel':''}" id="d-17" onclick="selectShellDiff('17')">Root + 7th</button>
-          <button class="diff-btn ${shellMode==='16'?'sel':''}" id="d-16" onclick="selectShellDiff('16')">Root + 6th</button>
-        </div>
-      </div>
-      <div style="width:100%;max-width:440px;">
         <div class="section-label">Timing</div>
         <div class="diff-row" style="margin-top:5px;">
           <button class="diff-btn ${timingMode==='free'?'sel':''}"  id="dt-free"  onclick="selectTimingDiff('free')">Free time</button>
@@ -1085,19 +1424,6 @@ function endGame() {
 // ═══════════════════════════════════════════════════════════════════════
 //  Controls
 // ═══════════════════════════════════════════════════════════════════════
-function setShell(s) {
-  shellMode = s;
-  document.getElementById('sp-17').classList.toggle('active', s === '17');
-  document.getElementById('sp-16').classList.toggle('active', s === '16');
-  if (gameRunning) startGame();
-}
-function selectShellDiff(s) {
-  shellMode = s;
-  document.getElementById('sp-17')?.classList.toggle('active', s === '17');
-  document.getElementById('sp-16')?.classList.toggle('active', s === '16');
-  document.getElementById('d-17')?.classList.toggle('sel', s === '17');
-  document.getElementById('d-16')?.classList.toggle('sel', s === '16');
-}
 function setTiming(t) {
   timingMode = t;
   document.getElementById('t-free').classList.toggle('active', t === 'free');
@@ -1138,341 +1464,330 @@ document.addEventListener('keyup', e => {
 });
 
 // Progress update (run each chord advance)
+
 // ═══════════════════════════════════════════════════════════════════════
-//  AUDIO ENGINE — Web Audio API backing track
-//  Drums (brushed jazz kit) + Walking bass + Chord pad
+//  AUDIO ENGINE — Real acoustic sample-based backing track
+//  Acoustic double bass + jazz drum kit from FluidR3/JCLive soundfonts
+//  Samples loaded at runtime from raw.githubusercontent.com
 // ═══════════════════════════════════════════════════════════════════════
-let audioCtx       = null;
-let masterGain     = null;
-let drumGain       = null;
-let bassGain       = null;
-let padGain        = null;
-let audioEnabled   = true;
-let audioRunning   = false;
-let schedulerTimer = null;
-let lookahead      = 0.1;   // seconds to schedule ahead
-let scheduleInterval = 25;  // ms between scheduler ticks
-let nextBeatTime   = 0;
-let beatCount      = 0;
-let barCount       = 0;
-let seqChordCursor = 0;     // which chord we're playing in the audio sequence
+let audioCtx         = null;
+let masterGain       = null;
+let drumGain         = null;
+let bassGain         = null;
+let padGain          = null;
+let audioEnabled     = true;
+let audioRunning     = false;
+let schedulerTimer   = null;
+const lookahead      = 0.12;
+const scheduleMs     = 25;
+let nextBeatTime     = 0;
+let beatCount        = 0;
+let barCount         = 0;
+let seqChordCursor   = 0;
 
-// Pitch reference: MIDI note → frequency
-function midiFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+// Sample cache
+const drumBuffers  = {};  // gm_note -> AudioBuffer
+const bassZones    = [];  // [{buffer, originalPitch, keyRangeLow, keyRangeHigh, loopStart, loopEnd, sampleRate}]
+let samplesReady   = false;
+let samplesLoading = false;
 
-// ── Walking bass patterns for each chord (MIDI notes, relative to chord root) ──
-// 4 quarter-note pitches per bar; semitone offsets from root
-// Pattern tries to voice-lead into the next chord's root
-function walkingBass(rootMidi, chordPCs, nextRootMidi, barNum) {
-  // Keep bass in low register (octave 2-3)
-  let r = rootMidi; while (r > 50) r -= 12; while (r < 33) r += 12;
-  const pcs = chordPCs;
-  // Build a 4-note walk: root, chord tone up, chord tone, approach to next root
-  const tone = (semis) => { let n = r + semis; while (n > 55) n -= 12; return n; };
-  const fifth   = tone(7);
-  const third   = tone(pcs.includes((rootMidi+4)%12) ? 4 : 3);  // maj or min 3rd
-  const seventh = tone(pcs.includes((rootMidi+10)%12) ? 10 : 11);
-  let nr = nextRootMidi; while (nr > 55) nr -= 12; while (nr < 33) nr += 12;
-  // Chromatic approach from semitone below or above
-  const approach = (Math.abs(nr - r) <= 6) ? nr - 1 : nr + 1;
+const BASE_URL  = 'https://raw.githubusercontent.com/surikov/webaudiofontdata/master/sound/';
+const BASS_FILE = '0320_FluidR3_GM_sf2_file';
+const DRUM_FILES = {
+  36: '12836_1_JCLive_sf2_file',  // Acoustic kick
+  38: '12838_1_JCLive_sf2_file',  // Snare
+  42: '12842_1_JCLive_sf2_file',  // Closed hi-hat
+  46: '12846_1_JCLive_sf2_file',  // Open hi-hat
+  51: '12851_1_JCLive_sf2_file',  // Ride cymbal
+};
 
-  // Several patterns, rotate by bar
-  const patterns = [
-    [r, fifth,   third,   approach],
-    [r, seventh, fifth,   approach],
-    [r, third,   fifth,   approach],
-    [r, fifth,   seventh, approach],
-  ];
-  return patterns[barNum % patterns.length];
-}
-
-// ── Drum synthesizers ──
-function playKick(t) {
-  if (!audioCtx) return;
-  const osc = audioCtx.createOscillator();
-  const env = audioCtx.createGain();
-  osc.connect(env); env.connect(drumGain);
-  osc.frequency.setValueAtTime(160, t);
-  osc.frequency.exponentialRampToValueAtTime(40, t + 0.08);
-  env.gain.setValueAtTime(1, t);
-  env.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-  osc.start(t); osc.stop(t + 0.2);
-}
-
-function playSnare(t) {
-  if (!audioCtx) return;
-  // Tone body
-  const osc = audioCtx.createOscillator();
-  const env = audioCtx.createGain();
-  osc.connect(env); env.connect(drumGain);
-  osc.type = 'triangle'; osc.frequency.setValueAtTime(220, t);
-  env.gain.setValueAtTime(0.35, t);
-  env.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-  osc.start(t); osc.stop(t + 0.15);
-  // Noise snare
-  const bufSize = Math.floor(audioCtx.sampleRate * 0.15);
-  const buf  = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.6;
-  const src  = audioCtx.createBufferSource();
-  const filt = audioCtx.createBiquadFilter();
-  const nenv = audioCtx.createGain();
-  src.buffer  = buf; filt.type = 'highpass'; filt.frequency.value = 1800;
-  src.connect(filt); filt.connect(nenv); nenv.connect(drumGain);
-  nenv.gain.setValueAtTime(0.45, t);
-  nenv.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-  src.start(t); src.stop(t + 0.16);
-}
-
-function playHihat(t, open) {
-  if (!audioCtx) return;
-  const bufSize = Math.floor(audioCtx.sampleRate * (open ? 0.25 : 0.06));
-  const buf  = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
-  const src  = audioCtx.createBufferSource();
-  const filt = audioCtx.createBiquadFilter();
-  const env  = audioCtx.createGain();
-  src.buffer = buf; filt.type = 'highpass'; filt.frequency.value = 7000;
-  src.connect(filt); filt.connect(env); env.connect(drumGain);
-  env.gain.setValueAtTime(open ? 0.25 : 0.18, t);
-  env.gain.exponentialRampToValueAtTime(0.001, t + (open ? 0.25 : 0.06));
-  src.start(t); src.stop(t + (open ? 0.28 : 0.08));
-}
-
-function playRide(t, accent) {
-  if (!audioCtx) return;
-  const bufSize = Math.floor(audioCtx.sampleRate * 0.35);
-  const buf  = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
-  const data = buf.getChannelData(0);
-  // Metallic overtones
-  for (let i = 0; i < bufSize; i++) {
-    data[i] = (Math.sin(i * 0.8) + Math.sin(i * 1.3) + (Math.random() - 0.5) * 0.4) * 0.3;
+// ── Sample loader ──
+async function loadSamples() {
+  if (samplesLoading || samplesReady) return;
+  samplesLoading = true;
+  try {
+    await ensureAudioCtx();
+    // Load bass soundfont
+    await loadBassFont();
+    // Load drum soundfonts
+    for (const [note, file] of Object.entries(DRUM_FILES)) {
+      await loadDrumFont(+note, file);
+    }
+    samplesReady = true;
+    // Update button to show samples loaded
+    const btn = document.getElementById('btn-audio');
+    if (btn && audioEnabled) btn.textContent = '🎵 Band on';
+  } catch(e) {
+    console.warn('Sample load failed, using synth fallback:', e);
+    samplesReady = false;
   }
-  const src  = audioCtx.createBufferSource();
+  samplesLoading = false;
+}
+
+async function loadFont(url) {
+  const res = await fetch(url);
+  const text = await res.text();
+  // Extract the JS object — eval in a sandbox
+  const match = text.match(/var\s+\w+\s*=\s*(\{[\s\S]*\})\s*;/);
+  if (!match) throw new Error('Parse failed: ' + url);
+  return Function('"use strict"; return (' + match[1] + ')')();
+}
+
+async function loadBassFont() {
+  const font = await loadFont(BASE_URL + BASS_FILE + '.js');
+  for (const zone of font.zones) {
+    if (!zone.file) continue;
+    const b64  = zone.file;
+    const buf  = await decodeBase64Audio(b64);
+    if (buf) bassZones.push({
+      buffer:        buf,
+      originalPitch: zone.originalPitch,   // in cents (e.g. 2800 = MIDI 28.00 + fine)
+      keyRangeLow:   zone.keyRangeLow,
+      keyRangeHigh:  zone.keyRangeHigh,
+      loopStart:     zone.loopStart,
+      loopEnd:       zone.loopEnd,
+      sampleRate:    zone.sampleRate,
+    });
+  }
+}
+
+async function loadDrumFont(gmNote, file) {
+  const font = await loadFont(BASE_URL + file + '.js');
+  const zone = font.zones[0];
+  if (!zone || !zone.file) return;
+  const buf = await decodeBase64Audio(zone.file);
+  if (buf) drumBuffers[gmNote] = buf;
+}
+
+async function decodeBase64Audio(b64) {
+  // Strip data URI prefix if present
+  const raw = b64.includes(',') ? b64.split(',')[1] : b64;
+  const binStr = atob(raw);
+  const bytes  = new Uint8Array(binStr.length);
+  for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+  try {
+    return await audioCtx.decodeAudioData(bytes.buffer.slice(0));
+  } catch(e) {
+    console.warn('Decode failed:', e);
+    return null;
+  }
+}
+
+// ── Sample playback ──
+function playDrum(gmNote, t, velocity) {
+  const buf = drumBuffers[gmNote];
+  if (!buf || !audioCtx) { synthDrum(gmNote, t, velocity); return; }
+  const src = audioCtx.createBufferSource();
+  const env = audioCtx.createGain();
+  src.buffer = buf;
+  src.connect(env); env.connect(drumGain);
+  env.gain.setValueAtTime(velocity ?? 0.9, t);
+  env.gain.exponentialRampToValueAtTime(0.001, t + 3.0);
+  src.start(t);
+  src.stop(t + 3.1);
+}
+
+function playBass(midi, t, dur) {
+  if (!audioCtx) return;
+  if (!bassZones.length) { synthBass(midi, t, dur); return; }
+  // Find the zone that covers this midi note
+  const zone = bassZones.find(z =>
+    midi >= z.keyRangeLow && midi <= z.keyRangeHigh
+  ) || bassZones[Math.floor(bassZones.length / 2)];
+
+  const src = audioCtx.createBufferSource();
+  const env = audioCtx.createGain();
+  src.buffer = zone.buffer;
+  // Pitch shift: originalPitch is in cents (100 per semitone)
+  const centsDiff = midi * 100 - zone.originalPitch;
+  src.playbackRate.value = Math.pow(2, centsDiff / 1200);
+  // Loop if the zone defines a loop
+  if (zone.loopStart > 0 && zone.loopEnd > zone.loopStart) {
+    src.loop      = true;
+    src.loopStart = zone.loopStart / zone.sampleRate;
+    src.loopEnd   = zone.loopEnd   / zone.sampleRate;
+  }
+  src.connect(env); env.connect(bassGain);
+  // Natural pluck envelope: fast attack, sustain, then release
+  env.gain.setValueAtTime(0,   t);
+  env.gain.linearRampToValueAtTime(0.95, t + 0.012);
+  env.gain.setValueAtTime(0.75, t + dur * 0.55);
+  env.gain.linearRampToValueAtTime(0,   t + dur * 0.92);
+  src.start(t);
+  src.stop(t + dur + 0.05);
+}
+
+// ── Synth fallbacks (if samples don't load) ──
+function synthDrum(gmNote, t, velocity) {
+  if (!audioCtx) return;
+  if (gmNote === 36) {
+    const osc = audioCtx.createOscillator(), env = audioCtx.createGain();
+    osc.connect(env); env.connect(drumGain);
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + 0.08);
+    env.gain.setValueAtTime(velocity ?? 1, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    osc.start(t); osc.stop(t + 0.2);
+  } else if (gmNote === 38) {
+    const n = audioCtx.createOscillator(), env = audioCtx.createGain();
+    n.type = 'triangle'; n.frequency.value = 200;
+    n.connect(env); env.connect(drumGain);
+    env.gain.setValueAtTime(0.4, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    n.start(t); n.stop(t + 0.12);
+  } else {
+    // Hi-hat / ride — noise burst
+    const bLen = Math.floor(audioCtx.sampleRate * (gmNote === 46 ? 0.25 : 0.07));
+    const buf = audioCtx.createBuffer(1, bLen, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < bLen; i++) d[i] = Math.random() * 2 - 1;
+    const src = audioCtx.createBufferSource(), filt = audioCtx.createBiquadFilter(), env = audioCtx.createGain();
+    src.buffer = buf; filt.type = 'highpass'; filt.frequency.value = 6000;
+    src.connect(filt); filt.connect(env); env.connect(drumGain);
+    env.gain.setValueAtTime(0.2, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + (gmNote === 46 ? 0.25 : 0.07));
+    src.start(t); src.stop(t + 0.3);
+  }
+}
+
+function synthBass(midi, t, dur) {
+  if (!audioCtx) return;
+  const freq = 440 * Math.pow(2, (midi - 69) / 12);
+  const osc  = audioCtx.createOscillator();
   const filt = audioCtx.createBiquadFilter();
   const env  = audioCtx.createGain();
-  src.buffer = buf; filt.type = 'bandpass'; filt.frequency.value = 5000; filt.Q.value = 0.5;
-  src.connect(filt); filt.connect(env); env.connect(drumGain);
-  const vol = accent ? 0.28 : 0.18;
-  env.gain.setValueAtTime(vol, t);
-  env.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-  src.start(t); src.stop(t + 0.38);
+  osc.type = 'sawtooth'; osc.frequency.value = freq;
+  filt.type = 'lowpass'; filt.frequency.value = 800; filt.Q.value = 2;
+  osc.connect(filt); filt.connect(env); env.connect(bassGain);
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(0.85, t + 0.015);
+  env.gain.setValueAtTime(0.65, t + dur * 0.7);
+  env.gain.linearRampToValueAtTime(0, t + dur * 0.92);
+  osc.start(t); osc.stop(t + dur + 0.05);
 }
 
-// ── Acoustic double bass synthesizer ──
-// Models the plucked string attack (bow-like thump), harmonic series of a
-// double bass, and the woody body resonance with natural decay.
-function playBassNote(midi, t, dur) {
-  if (!audioCtx) return;
-  const freq = midiFreq(midi);
-  const ac = audioCtx;
-
-  // --- String model: additive harmonics with natural decay ratios ---
-  // Double bass harmonic series: fundamental drops fastest, overtones linger
-  // Amplitudes follow measured upright bass spectra (1/n with corrections)
-  const harmonics = [
-    { ratio: 1,    amp: 0.55, decay: 0.80 },  // fundamental
-    { ratio: 2,    amp: 0.28, decay: 1.10 },  // octave
-    { ratio: 3,    amp: 0.14, decay: 0.90 },  // fifth above octave
-    { ratio: 4,    amp: 0.09, decay: 0.70 },  // two octaves
-    { ratio: 5,    amp: 0.05, decay: 0.60 },  // major third
-    { ratio: 6,    amp: 0.03, decay: 0.50 },  // fifth
-  ];
-
-  const masterEnv = ac.createGain();
-  masterEnv.connect(bassGain);
-
-  harmonics.forEach(h => {
-    const osc = ac.createOscillator();
-    const env = ac.createGain();
-    osc.type      = 'sine';
-    osc.frequency.value = freq * h.ratio;
-    // Slight inharmonicity (real strings go slightly sharp on upper partials)
-    osc.frequency.value *= (1 + (h.ratio - 1) * 0.0008);
-
-    osc.connect(env);
-    env.connect(masterEnv);
-
-    // Sharp attack (bow/pluck impact), then ring with harmonic-specific decay
-    const attackT = t + 0.008;
-    const decayT  = Math.min(dur * 0.95, h.decay);
-    env.gain.setValueAtTime(0, t);
-    env.gain.linearRampToValueAtTime(h.amp, attackT);
-    env.gain.exponentialRampToValueAtTime(h.amp * 0.55, t + 0.06);   // body thump transient
-    env.gain.exponentialRampToValueAtTime(0.001, t + decayT);
-
-    osc.start(t);
-    osc.stop(t + decayT + 0.05);
-  });
-
-  // --- Pluck noise transient (finger/bow on string attack thump) ---
-  const bufLen  = Math.floor(ac.sampleRate * 0.04);
-  const nBuf    = ac.createBuffer(1, bufLen, ac.sampleRate);
-  const nData   = nBuf.getChannelData(0);
-  for (let i = 0; i < bufLen; i++) nData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.3));
-  const nSrc    = ac.createBufferSource();
-  const nFilt   = ac.createBiquadFilter();
-  const nEnv    = ac.createGain();
-  nSrc.buffer   = nBuf;
-  nFilt.type    = 'bandpass'; nFilt.frequency.value = freq * 3; nFilt.Q.value = 1.2;
-  nSrc.connect(nFilt); nFilt.connect(nEnv); nEnv.connect(masterEnv);
-  nEnv.gain.setValueAtTime(0.18, t);
-  nEnv.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
-  nSrc.start(t); nSrc.stop(t + 0.05);
-
-  // --- Body resonance: low-mid woody warmth ---
-  // Double bass body peaks around 80-200Hz depending on note
-  const bodyFreq = Math.min(freq * 1.8, 280);
-  const bodyOsc  = ac.createOscillator();
-  const bodyEnv  = ac.createGain();
-  const bodyFilt = ac.createBiquadFilter();
-  bodyOsc.type   = 'sine'; bodyOsc.frequency.value = bodyFreq;
-  bodyFilt.type  = 'peaking'; bodyFilt.frequency.value = bodyFreq;
-  bodyFilt.gain.value = 4; bodyFilt.Q.value = 2;
-  bodyOsc.connect(bodyFilt); bodyFilt.connect(bodyEnv); bodyEnv.connect(masterEnv);
-  bodyEnv.gain.setValueAtTime(0, t);
-  bodyEnv.gain.linearRampToValueAtTime(0.12, t + 0.025);
-  bodyEnv.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-  bodyOsc.start(t); bodyOsc.stop(t + 0.4);
-
-  // --- Master envelope: natural string release ---
-  masterEnv.gain.setValueAtTime(1, t);
-  masterEnv.gain.setValueAtTime(1, t + dur * 0.82);
-  masterEnv.gain.linearRampToValueAtTime(0, t + dur + 0.05);
-}
-
-// ── Chord pad (sparse jazz comping stabs) ──
+// ── Chord pad (kept as synth — adds warmth without mudding the bass) ──
 function playChordPad(pitches, t, dur) {
   if (!audioCtx) return;
   pitches.forEach((midi, i) => {
-    const freq = midiFreq(midi);
+    const freq = 440 * Math.pow(2, (midi - 69) / 12);
     const osc  = audioCtx.createOscillator();
     const env  = audioCtx.createGain();
     osc.type   = 'sine'; osc.frequency.value = freq;
     osc.connect(env); env.connect(padGain);
-    const vol = 0.18 - i * 0.02;
+    const vol = 0.14 - i * 0.02;
     env.gain.setValueAtTime(0, t);
-    env.gain.linearRampToValueAtTime(vol, t + 0.04);
-    env.gain.setValueAtTime(vol * 0.7, t + dur * 0.5);
+    env.gain.linearRampToValueAtTime(vol, t + 0.06);
+    env.gain.setValueAtTime(vol * 0.6, t + dur * 0.5);
     env.gain.linearRampToValueAtTime(0, t + dur * 0.95);
     osc.start(t); osc.stop(t + dur + 0.05);
   });
 }
 
-// ── Jazz drum patterns ──
-// Standard jazz ride pattern with brushed feel
-// Beat positions within a bar of 4/4 (0-indexed quarter beats, with eighths as 0.5)
-// Jazz ride: beats 1, 1.5, 2.5, 3, 3.5  (swing feel)
-// Kick: 1, 3.  Snare (rim): 2, 4.  Hi-hat: 2, 4 (foot)
-const RIDE_BEATS     = [0, 0.67, 1.33, 2, 2.67];   // triplet swing eighths (jazz time)
-const KICK_BEATS     = [0, 2];
-const SNARE_BEATS    = [1, 3];
-const HIHAT_FOOT     = [1, 3];
-// 2-bar drum patterns rotate slightly
-function scheduleDrumBar(barT, beatDur, barNum) {
-  RIDE_BEATS.forEach((b, i) => {
-    playRide(barT + b * beatDur, i === 0 || i === 2);
-  });
-  KICK_BEATS.forEach(b  => playKick(barT + b * beatDur));
-  SNARE_BEATS.forEach(b => playSnare(barT + b * beatDur));
+// ── Walking bass line ──
+function walkingBass(rootMidi, chordPCs, nextRootMidi, barNum) {
+  let r = rootMidi;
+  while (r > 52) r -= 12;
+  while (r < 33) r += 12;
+  const pc    = n => { let m = r + n; while (m > 55) m -= 12; return m; };
+  const has   = semi => chordPCs.includes((rootMidi + semi + 12) % 12);
+  const fifth   = pc(7);
+  const third   = pc(has(4) ? 4 : 3);
+  const seventh = pc(has(10) ? 10 : 11);
+  let nr = nextRootMidi; while (nr > 52) nr -= 12; while (nr < 33) nr += 12;
+  const approach = nr + (Math.abs(nr - r) <= 6 ? -1 : 1);
+  const patterns = [
+    [r, fifth, third, approach],
+    [r, seventh, fifth, approach],
+    [r, third, fifth, approach],
+    [r, fifth, seventh, approach],
+  ];
+  return patterns[barNum % patterns.length];
 }
 
-// ── Chord voicings for the pad (absolute midi, mid-register) ──
 function padVoicing(rhPCs) {
-  // Build a close-position voicing starting around MIDI 60-72
-  const sorted = [...rhPCs].sort((a,b) => a - b);
+  const sorted = [...rhPCs].sort((a, b) => a - b);
   const base   = 60;
   return sorted.map(pc => {
     let m = base + ((pc - base % 12 + 12) % 12);
-    if (m < 60) m += 12;
+    while (m < 60) m += 12;
     return m;
   });
+}
+
+// Jazz ride swing pattern (triplet feel)
+const RIDE_BEATS  = [0, 0.67, 1.33, 2, 2.67];
+const KICK_BEATS  = [0, 2];
+const SNARE_BEATS = [1, 3];
+
+function scheduleDrumBar(barT, beatDur) {
+  RIDE_BEATS.forEach((b, i)  => playDrum(51, barT + b * beatDur, i === 0 || i === 2 ? 0.85 : 0.55));
+  KICK_BEATS.forEach(b       => playDrum(36, barT + b * beatDur, 0.9));
+  SNARE_BEATS.forEach(b      => playDrum(38, barT + b * beatDur, 0.75));
 }
 
 // ── Main scheduler ──
 function scheduleAudio() {
   if (!audioCtx || !audioRunning) return;
-  const now      = audioCtx.currentTime;
-  const beatDur  = 60 / currentBPM;
-  const barDur   = beatDur * 4;
+  const now     = audioCtx.currentTime;
+  const beatDur = 60 / currentBPM;
+  const barDur  = beatDur * 4;
 
   while (nextBeatTime < now + lookahead) {
-    const beat    = beatCount % 4;
-    const isBar   = beat === 0;
-    const t       = nextBeatTime;
+    const beat  = beatCount % 4;
+    const isBar = beat === 0;
+    const t     = nextBeatTime;
 
-    // ─ Drums: schedule bar at beat 0 ─
-    if (isBar) {
-      scheduleDrumBar(t, beatDur, barCount);
-    }
+    if (isBar) scheduleDrumBar(t, beatDur);
 
-    // ─ Bass: one note per beat ─
-    if (chordSeq.length > 0) {
-      const idx  = seqChordCursor % chordSeq.length;
-      const c    = chordSeq[idx];
+    if (chordSeq.length > 0 && isBar) {
+      const idx   = seqChordCursor % chordSeq.length;
+      const c     = chordSeq[idx];
       const nextC = chordSeq[(idx + 1) % chordSeq.length];
-      const lhR  = c.lhRoot;
-      const nextR = nextC.lhRoot;
-      const barsForChord = c.bars;
-
-      if (isBar) {
-        // Figure out which bar within this chord we're on
-        const localBar = barCount % barsForChord;
-        const walk = walkingBass(lhR, c.rhPCs, nextR, localBar);
-        // Schedule 4 beats of walking bass
-        for (let b = 0; b < 4; b++) {
-          playBassNote(walk[b], t + b * beatDur, beatDur * 0.88);
-        }
-        // Chord pad: comp on beats 2 and 4 (or 1 and 3 on bar 2)
-        const compBeats = (localBar % 2 === 0) ? [1, 3] : [0.5, 2.5];
-        const voicing   = padVoicing(c.rhPCs);
-        compBeats.forEach(b => {
-          playChordPad(voicing, t + b * beatDur, beatDur * 1.6);
-        });
-
-        // Advance chord cursor after its bar count
-        if (localBar === barsForChord - 1) seqChordCursor++;
-      }
+      const local = barCount % c.bars;
+      const walk  = walkingBass(c.lhRoot, c.rhPCs, nextC.lhRoot, local);
+      for (let b = 0; b < 4; b++) playBass(walk[b], t + b * beatDur, beatDur * 0.88);
+      const compBeats = (local % 2 === 0) ? [1, 3] : [0.5, 2.5];
+      compBeats.forEach(b => playChordPad(padVoicing(c.rhPCs), t + b * beatDur, beatDur * 1.5));
+      if (local === c.bars - 1) seqChordCursor++;
     }
 
     beatCount++;
     if (beat === 3) barCount++;
     nextBeatTime += beatDur;
   }
-
-  schedulerTimer = setTimeout(scheduleAudio, scheduleInterval);
+  schedulerTimer = setTimeout(scheduleAudio, scheduleMs);
 }
 
-// ── Volume sliders ──
+// ── Volume ──
 function setVolume(v) {
-  if (!masterGain) return;
-  masterGain.gain.setTargetAtTime(v / 100, audioCtx.currentTime, 0.05);
+  if (masterGain && audioCtx) masterGain.gain.setTargetAtTime(v / 100, audioCtx.currentTime, 0.05);
 }
 
-// ── Init / start / stop ──
-function initAudio() {
-  if (audioCtx) return;
-  audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
-  masterGain = audioCtx.createGain(); masterGain.gain.value = 0.7;
-  drumGain   = audioCtx.createGain(); drumGain.gain.value   = 0.9;
-  bassGain   = audioCtx.createGain(); bassGain.gain.value   = 1.1;
-  padGain    = audioCtx.createGain(); padGain.gain.value    = 0.7;
-  drumGain.connect(masterGain);
-  bassGain.connect(masterGain);
-  padGain.connect(masterGain);
-  masterGain.connect(audioCtx.destination);
+// ── Lifecycle ──
+async function ensureAudioCtx() {
+  if (!audioCtx) {
+    audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain(); masterGain.gain.value = 0.7;
+    drumGain   = audioCtx.createGain(); drumGain.gain.value   = 0.85;
+    bassGain   = audioCtx.createGain(); bassGain.gain.value   = 1.15;
+    padGain    = audioCtx.createGain(); padGain.gain.value    = 0.55;
+    drumGain.connect(masterGain);
+    bassGain.connect(masterGain);
+    padGain.connect(masterGain);
+    masterGain.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
 }
 
-function startAudio() {
+async function startAudio() {
   if (!audioEnabled) return;
-  initAudio();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  beatCount       = 0;
-  barCount        = 0;
-  seqChordCursor  = 0;
-  nextBeatTime    = audioCtx.currentTime + 0.1;
-  audioRunning    = true;
+  await ensureAudioCtx();
+  // Kick off sample loading in background (plays synth until ready)
+  if (!samplesReady && !samplesLoading) loadSamples();
+  beatCount      = 0; barCount = 0; seqChordCursor = 0;
+  nextBeatTime   = audioCtx.currentTime + 0.1;
+  audioRunning   = true;
   clearTimeout(schedulerTimer);
   scheduleAudio();
 }
@@ -1480,10 +1795,10 @@ function startAudio() {
 function stopAudio() {
   audioRunning = false;
   clearTimeout(schedulerTimer);
-  // Fade out master gain smoothly
   if (masterGain && audioCtx) {
     masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.15);
-    setTimeout(() => { if (masterGain) masterGain.gain.value = parseFloat(document.getElementById('vol-slider').value) / 100; }, 800);
+    const restoreVol = parseFloat(document.getElementById('vol-slider')?.value ?? 70) / 100;
+    setTimeout(() => { if (masterGain) masterGain.gain.value = restoreVol; }, 800);
   }
 }
 
@@ -1506,6 +1821,7 @@ function stopGame() {
   gameRunning = false;
   clearTimeout(chordTimer);
   cancelAnimationFrame(timerAnimFrame);
+  stopCursorAnim();
   stopAudio();
   clearAllKeyClasses();
   lhHeld.clear(); rhHeld.clear(); lhWrong.clear(); rhWrong.clear();
@@ -1523,14 +1839,10 @@ function stopGame() {
   setHandStatus('lh', 'waiting');
   setHandStatus('rh', 'waiting');
   document.getElementById('combo-display').textContent = '';
-  // Reset chip highlights
-  document.querySelectorAll('.chord-chip').forEach(ch => ch.classList.remove('active'));
   document.getElementById('btn-stop').style.display = 'none';
-  // Keep Restart visible so they can go again
 }
 
 window.stopGame    = stopGame;
-
 window.toggleAudio = toggleAudio;
 window.setVolume   = setVolume;
 
@@ -1540,7 +1852,7 @@ startGame = function() {
   _origStartGame();
   seqChordCursor = 0;
   stopAudio();
-  setTimeout(startAudio, 80);  // slight delay lets overlay close first
+  setTimeout(startAudio, 80);
 };
 
 const _origEndGame = endGame;
@@ -1549,20 +1861,23 @@ endGame = function() {
   stopAudio();
 };
 
+
 // ═══════════════════════════════════════════════════════════════════════
 //  Init
 // ═══════════════════════════════════════════════════════════════════════
 buildKeyboard();
 buildKeySelector();
 initMIDI();
+// Draw sheet preview on load (before game starts)
+chordSeq = buildSeq();
+setTimeout(rebuildSheet, 50); // slight delay to let DOM measure widths
 // Re-expose after patching
 window.startGame = startGame;
 window.endGame   = endGame;
 window.setMode = setMode; window.toggleHints = toggleHints;
 window.setTempo = setTempo; window.adjustTempo = adjustTempo;
-window.setShell = setShell; window.selectShellDiff = selectShellDiff;
 window.setTiming = setTiming; window.selectTimingDiff = selectTimingDiff;
-window.addEventListener('resize', buildKeyboard);
+window.addEventListener('resize', () => { buildKeyboard(); if (chordSeq.length) setTimeout(rebuildSheet, 30); });
 </script>
 </body>
 </html>
